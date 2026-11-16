@@ -33,7 +33,8 @@ const raw = (await readStdin()).trim();
 const candidates = raw ? findPaths(safeParse(raw)) : new Set(process.argv.slice(2));
 
 const files = [...candidates]
-  .map((p) => relative(root, resolve(root, p)))
+  // Normalize to forward slashes so Windows paths (packages\core\...) match too.
+  .map((p) => relative(root, resolve(root, p)).replaceAll('\\', '/'))
   .filter((p) => /^(packages|apps)\//.test(p));
 
 if (files.length === 0) {
