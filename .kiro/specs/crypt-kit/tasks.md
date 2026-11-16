@@ -7,11 +7,11 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - [x] 1.2 Commit `.kiro/` with this spec, steering files and hooks
   - _Requirements: R8.1, R8.2, R9.1_
 
-- [ ] 2. Core contracts and runner (Nov 17-19)
-  - [ ] 2.1 `Finding`, `Detector`, `Draft`, `Agent`, `Action`, `TrackerStore` types and Zod schemas
-  - [ ] 2.2 Runner: poll, validate, diff, cap, draft, persist
-  - [ ] 2.3 Approve and spare with a per-haunt lock and payload-hash re-draft
-  - [ ] 2.4 Contract test helper and runner tests (dedup, resolve, cap, double approve, no model calls in poll)
+- [x] 2. Core contracts and runner (Nov 17-19)
+  - [x] 2.1 `Finding`, `Detector`, `Draft`, `Agent`, `Action`, `TrackerStore` types and Zod schemas
+  - [x] 2.2 Runner: poll, validate, diff, cap, draft, persist
+  - [x] 2.3 Approve and spare with a per-haunt lock and payload-hash re-draft
+  - [x] 2.4 Contract test helper and runner tests (dedup, resolve, cap, double approve, no model calls in poll)
   - _Requirements: R1, R2.1-R2.3, R3.3-R3.4, R4_
 
 - [ ] 3. Storage adapters (Nov 19)

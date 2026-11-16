@@ -9,13 +9,14 @@ A detector turns source data into findings. It is the only part of the loop that
 
 ## Rules
 
-1. **No AI before detection.** `poll()` must never call a model, directly or indirectly. The contract test helper asserts this with a mocked agent.
+1. **No AI before detection.** `poll()` must never call a model, directly or indirectly. The contract test helper enforces this by failing on any network call outside the recorded fixtures.
 2. **Stable keys.** The same real-world item must produce the same `key` on every run. Build keys from source IDs, never from titles, timestamps or array positions.
    - Exorcist: `owner/repo#number`
    - Poltergeist: `source:itemId@price` (a further price drop creates a new haunt on purpose)
 3. **Validated payloads.** Each detector declares a Zod `payloadSchema`. The runner drops findings that fail it and logs the error.
-4. **Injected I/O.** Detectors get HTTP clients and clocks through `PollContext`, so tests use recorded fixtures instead of the network.
-5. **Fail loudly, not partly.** If a source call fails, throw. The runner isolates the failure; it must not record a half-complete run as "everything resolved".
+4. **Payloads hold only what matters.** A spared haunt is re-drafted when its payload hash changes, so leave out values that drift every run (e.g. "days stale", fetch timestamps). Put them in `title` or compute them in the UI instead.
+5. **Injected I/O.** Detectors get HTTP clients and clocks through `PollContext`, so tests use recorded fixtures instead of the network.
+6. **Fail loudly, not partly.** If a source call fails, throw. The runner isolates the failure; it must not record a half-complete run as "everything resolved".
 
 ## Shape
 
@@ -31,3 +32,13 @@ export interface Detector<P> {
 
 - fixtures recorded from the real source (secrets stripped)
 - a contract test using the kit's helper: stable keys across two polls, schema-valid payloads, zero model calls
+
+```ts
+import { assertDetectorContract } from '@crypt-kit/core/testing';
+
+it('follows the detector contract', async () => {
+  await assertDetectorContract(staleIssuesDetector, { routes: recordedGitHubRoutes });
+});
+```
+
+The helper serves only the recorded routes through `ctx.fetch` and swaps global `fetch` for a stub that throws, so any unrecorded network call (including a model call) fails the test.
