@@ -2,9 +2,9 @@
 
 Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 PM PT. Leave a day of slack before the deadline.
 
-- [ ] 1. Repo setup (Nov 17)
-  - [ ] 1.1 New public repo, pnpm workspace, TypeScript strict, Vitest, MIT license
-  - [ ] 1.2 Commit `.kiro/` with this spec, steering files and hooks
+- [x] 1. Repo setup (Nov 17)
+  - [x] 1.1 New public repo, pnpm workspace, TypeScript strict, Vitest, MIT license
+  - [x] 1.2 Commit `.kiro/` with this spec, steering files and hooks
   - _Requirements: R8.1, R8.2, R9.1_
 
 - [ ] 2. Core contracts and runner (Nov 17-19)
