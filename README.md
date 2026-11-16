@@ -26,6 +26,8 @@ pnpm typecheck   # tsc -b
 pnpm test        # vitest run
 ```
 
+CI runs the same typecheck and tests on every pull request and on pushes to `main`.
+
 Kiro steering lives in `.kiro/steering/` and hooks in `.kiro/hooks/`. Saving a TypeScript file runs only its related tests, and finishing a spec task runs the full typecheck and test suite.
 
 ## License
