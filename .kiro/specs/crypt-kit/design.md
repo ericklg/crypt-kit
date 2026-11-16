@@ -114,7 +114,8 @@ export interface Runner<P> {
 
 ### Runner rules
 
-- `run()` is idempotent per key. Unchanged keys never trigger a draft (R2.2). Concurrent `run()` calls share one in-flight run.
+- `run()` is idempotent per key. Unchanged keys never trigger a draft (R2.2). Concurrent `run()` calls for the same store and detector share one in-flight run, even across runner instances.
+- A run only resolves haunts last seen before its own poll started, so a slow poll (from any runner or process) can't resolve items a newer poll found.
 - A `spared` haunt is re-drafted only if `hash(payload)` changes (R4.3).
 - `maxDraftsPerRun` defaults to 20 (R3.4). Findings over the cap stay `new` and are drafted oldest-first on the next run.
 - Every write takes a per-key lock and re-reads the haunt first. Locks are shared by every runner on the same store object, so per-request runners are safe too. A double click cannot run an action twice, and a run skips keys that are mid-approval (R4.2). The lock is in-process; cross-process safety is the store adapter's job.

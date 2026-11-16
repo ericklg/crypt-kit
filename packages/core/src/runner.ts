@@ -65,6 +65,17 @@ export interface Runner<P> {
 }
 
 const locksByStore = new WeakMap<TrackerStore, Set<string>>();
+const runsByStore = new WeakMap<TrackerStore, Map<string, Promise<RunReport>>>();
+
+/** In-flight runs keyed by detector ID, shared by every runner on the same store. */
+function runsFor(store: TrackerStore): Map<string, Promise<RunReport>> {
+  let runs = runsByStore.get(store);
+  if (!runs) {
+    runs = new Map();
+    runsByStore.set(store, runs);
+  }
+  return runs;
+}
 
 function locksFor(store: TrackerStore): Set<string> {
   let locks = locksByStore.get(store);
@@ -94,7 +105,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   // per-request runners (e.g. in route handlers) can't approve one haunt twice.
   // Cross-process locking is the store's job (see store adapters).
   const busy = locksFor(store);
-  let inFlightRun: Promise<RunReport> | null = null;
+  const inFlightRuns = runsFor(store);
 
   async function load(key: string): Promise<Haunt<P> | null> {
     const haunt = await store.get(key);
@@ -157,8 +168,9 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     const observed = new Set<string>();
     let invalid = 0;
     for (const item of raw) {
+      // Trim like findingEnvelopeSchema does, so observed keys match stored keys.
       if (item && typeof item === 'object' && 'key' in item && typeof item.key === 'string' && item.key.trim()) {
-        observed.add(item.key);
+        observed.add(item.key.trim());
       }
       const envelope = findingEnvelopeSchema.safeParse(item);
       if (!envelope.success) {
@@ -202,6 +214,9 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       draftFailed: 0,
       deferred: 0,
     };
+
+    // Anything seen at or after this instant was written by a newer poll than ours.
+    const pollStartedAt = now().toISOString();
 
     // 1. Detect. No agent calls happen until poll() has returned (R1.2, R3.1).
     let raw: unknown;
@@ -257,6 +272,9 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       await withLock(haunt.key, async () => {
         const current = await load(haunt.key);
         if (!current || !RESOLVABLE_STATUSES.includes(current.status)) return;
+        // A newer poll (another runner or process) saw this item after ours started,
+        // so our snapshot is too old to say it disappeared.
+        if (current.lastSeenAt >= pollStartedAt) return;
         await save({ ...current, status: 'resolved', updatedAt: now().toISOString() });
         report.resolved++;
       });
@@ -321,10 +339,13 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
 
   return {
     run() {
-      inFlightRun ??= doRun().finally(() => {
-        inFlightRun = null;
+      const existing = inFlightRuns.get(detector.id);
+      if (existing) return existing;
+      const started: Promise<RunReport> = doRun().finally(() => {
+        if (inFlightRuns.get(detector.id) === started) inFlightRuns.delete(detector.id);
       });
-      return inFlightRun;
+      inFlightRuns.set(detector.id, started);
+      return started;
     },
 
     approve(key, edits = {}) {

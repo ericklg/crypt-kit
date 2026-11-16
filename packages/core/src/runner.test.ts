@@ -216,6 +216,69 @@ describe('run: detect and remember', () => {
     expect(t.events.filter((e) => e === 'poll:start')).toHaveLength(1);
   });
 
+  it('shares one in-flight run across runners on the same store and detector', async () => {
+    const t = setup();
+    let release!: () => void;
+    t.setFindings(() => new Promise((resolve) => (release = () => resolve([finding('a')]))));
+    const otherPoll = vi.fn(async () => [] as Finding<Payload>[]);
+    const other = createRunner<Payload>({
+      detector: { id: 'test-detector', payloadSchema, poll: otherPoll },
+      agent: { draft: t.draft },
+      action: { id: 'test-action', run: t.actionRun },
+      store: t.store,
+      log: silentLogger,
+    });
+
+    const first = t.runner.run();
+    const second = other.run();
+    release();
+
+    expect(await second).toBe(await first);
+    expect(otherPoll).not.toHaveBeenCalled();
+    expect((await t.store.get('a'))?.status).toBe('drafted');
+  });
+
+  it('does not resolve a haunt that a newer poll saw while this poll was running', async () => {
+    const t = setup();
+    let release!: () => void;
+    t.setFindings(() => new Promise((resolve) => (release = () => resolve([]))));
+
+    const running = t.runner.run();
+    // Simulate another process finishing a newer poll that created and drafted "a".
+    await t.store.upsert({
+      key: 'a',
+      detectorId: 'test-detector',
+      status: 'drafted',
+      finding: finding('a'),
+      payloadHash: 'x',
+      sparedPayloadHash: null,
+      draft: { summary: 's', proposal: 'p', reasoning: 'r', options: {} },
+      result: null,
+      error: null,
+      firstSeenAt: '2099-01-01T00:00:00.000Z',
+      lastSeenAt: '2099-01-01T00:00:00.000Z',
+      updatedAt: '2099-01-01T00:00:00.000Z',
+    });
+    release();
+    const report = await running;
+
+    expect(report.resolved).toBe(0);
+    expect((await t.store.get('a'))?.status).toBe('drafted');
+  });
+
+  it('matches trimmed keys so a padded key is not resolved in its own run', async () => {
+    const t = setup();
+    t.setFindings([finding(' a ')]);
+
+    const first = await t.runner.run();
+    const second = await t.runner.run();
+
+    expect(first).toMatchObject({ created: 1, resolved: 0, drafted: 1 });
+    expect(second).toMatchObject({ created: 0, resolved: 0, drafted: 0 });
+    expect((await t.store.get('a'))?.status).toBe('drafted');
+    expect(t.draft).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores keys owned by another detector in a shared store', async () => {
     const t = setup();
     await t.store.upsert({
