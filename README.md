@@ -16,6 +16,18 @@ Two apps are built from the kit:
 
 Status: in development. The spec lives in [`.kiro/specs/crypt-kit`](.kiro/specs/crypt-kit).
 
+## Develop
+
+Requires Node 26 (see `.nvmrc`) and pnpm 12.
+
+```sh
+pnpm install
+pnpm typecheck   # tsc -b
+pnpm test        # vitest run
+```
+
+Kiro steering lives in `.kiro/steering/` and hooks in `.kiro/hooks/`. Saving a TypeScript file runs only its related tests, and finishing a spec task runs the full typecheck and test suite.
+
 ## License
 
 [MIT](LICENSE)
