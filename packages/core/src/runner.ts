@@ -64,6 +64,17 @@ export interface Runner<P> {
   list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
 }
 
+const locksByStore = new WeakMap<TrackerStore, Set<string>>();
+
+function locksFor(store: TrackerStore): Set<string> {
+  let locks = locksByStore.get(store);
+  if (!locks) {
+    locks = new Set();
+    locksByStore.set(store, locks);
+  }
+  return locks;
+}
+
 const APPROVABLE: readonly HauntStatus[] = ['drafted', 'action_failed'];
 const REDRAFTABLE: readonly HauntStatus[] = ['drafted', 'draft_failed'];
 
@@ -79,9 +90,10 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     throw new RangeError('maxDraftsPerRun must be a non-negative integer');
   }
 
-  // Keys with an operation in flight. Guards read-modify-write races inside one process.
+  // Keys with an operation in flight, shared by every runner on the same store, so
+  // per-request runners (e.g. in route handlers) can't approve one haunt twice.
   // Cross-process locking is the store's job (see store adapters).
-  const busy = new Set<string>();
+  const busy = locksFor(store);
   let inFlightRun: Promise<RunReport> | null = null;
 
   async function load(key: string): Promise<Haunt<P> | null> {
@@ -113,6 +125,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       status: 'new',
       finding,
       payloadHash,
+      sparedPayloadHash: null,
       draft: null,
       result: null,
       error: null,
@@ -135,10 +148,18 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     }
   }
 
-  function validate(raw: unknown[]): { findings: Map<string, Finding<P>>; invalid: number } {
+  /**
+   * Splits a poll into accepted findings and the set of every key the source reported,
+   * valid or not. An invalid observation is not evidence that an item disappeared.
+   */
+  function validate(raw: unknown[]): { findings: Map<string, Finding<P>>; observed: Set<string>; invalid: number } {
     const findings = new Map<string, Finding<P>>();
+    const observed = new Set<string>();
     let invalid = 0;
     for (const item of raw) {
+      if (item && typeof item === 'object' && 'key' in item && typeof item.key === 'string' && item.key.trim()) {
+        observed.add(item.key);
+      }
       const envelope = findingEnvelopeSchema.safeParse(item);
       if (!envelope.success) {
         invalid++;
@@ -165,7 +186,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       }
       findings.set(envelope.data.key, { ...envelope.data, payload: payload.data });
     }
-    return { findings, invalid };
+    return { findings, observed, invalid };
   }
 
   async function doRun(): Promise<RunReport> {
@@ -194,7 +215,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       return { ...report, ok: false, error: errorMessage(error) };
     }
 
-    const { findings, invalid } = validate(raw);
+    const { findings, observed, invalid } = validate(raw);
     report.found = findings.size;
     report.invalid = invalid;
 
@@ -214,20 +235,25 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           return;
         }
         const current = existing as Haunt<P>;
-        const cameBack = current.status === 'resolved';
-        const changedAfterSpare = current.status === 'spared' && current.payloadHash !== payloadHash;
-        if (cameBack || changedAfterSpare) {
+        const refreshed = { ...current, finding, payloadHash, lastSeenAt: at };
+
+        if (current.status === 'spared' || current.status === 'resolved') {
+          // A rejection sticks until the payload changes, even across a disappear/return (R4.3).
+          if (current.sparedPayloadHash !== null && current.sparedPayloadHash === payloadHash) {
+            await save(current.status === 'resolved' ? { ...refreshed, status: 'spared', updatedAt: at } : refreshed);
+            return;
+          }
           await save(freshHaunt(finding, payloadHash, at, current.firstSeenAt));
           report.reopened++;
           return;
         }
-        await save({ ...current, finding, payloadHash, lastSeenAt: at });
+        await save(refreshed);
       });
     }
 
-    // 3. Resolve live haunts the source no longer reports (R2.3).
+    // 3. Resolve live haunts the source no longer reports at all (R2.3).
     for (const haunt of await store.list({ detectorId: detector.id, status: RESOLVABLE_STATUSES })) {
-      if (findings.has(haunt.key)) continue;
+      if (observed.has(haunt.key)) continue;
       await withLock(haunt.key, async () => {
         const current = await load(haunt.key);
         if (!current || !RESOLVABLE_STATUSES.includes(current.status)) return;
@@ -277,7 +303,8 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   function applyEdits(draft: Draft, edits: DraftEdits): unknown {
     const options = { ...draft.options };
     for (const [name, value] of Object.entries(edits.options ?? {})) {
-      if (name in options) options[name] = value;
+      // Own properties only: `in` would accept inherited names like "toString".
+      if (Object.hasOwn(options, name)) options[name] = value;
     }
     return { ...draft, proposal: edits.proposal ?? draft.proposal, options };
   }
@@ -322,7 +349,13 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     spare(key) {
       return operate(key, OPEN_STATUSES, async (haunt) => ({
         ok: true,
-        haunt: await save({ ...haunt, status: 'spared', error: null, updatedAt: now().toISOString() }),
+        haunt: await save({
+          ...haunt,
+          status: 'spared',
+          sparedPayloadHash: haunt.payloadHash,
+          error: null,
+          updatedAt: now().toISOString(),
+        }),
       }));
     },
 

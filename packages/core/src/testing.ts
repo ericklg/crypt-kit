@@ -11,6 +11,32 @@ export interface FixtureRoute {
   body: unknown;
 }
 
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+// Global fetch is swapped for a throwing stub while any contract poll is active.
+// A depth counter keeps overlapping checks (e.g. it.concurrent) from restoring it early.
+let stubDepth = 0;
+let realFetch: typeof globalThis.fetch | undefined;
+
+const forbiddenFetch: typeof globalThis.fetch = async (input) => {
+  const url = input instanceof Request ? input.url : String(input);
+  throw new Error(`Detector used global fetch (${url}); use ctx.fetch instead`);
+};
+
+function blockGlobalFetch(): void {
+  if (stubDepth++ === 0) {
+    realFetch = globalThis.fetch;
+    globalThis.fetch = forbiddenFetch;
+  }
+}
+
+function restoreGlobalFetch(): void {
+  if (--stubDepth === 0) {
+    if (realFetch) globalThis.fetch = realFetch;
+    realFetch = undefined;
+  }
+}
+
 export interface RecordedCall {
   method: string;
   url: string;
@@ -32,9 +58,14 @@ export function fixtureFetch(routes: readonly FixtureRoute[]): {
         (typeof r.match === 'string' ? r.match === call.url : r.match.test(call.url)),
     );
     if (!route) throw new Error(`Unrecorded request in detector test: ${call.method} ${call.url}`);
+    const status = route.status ?? 200;
+    // Response forbids a body for these statuses, so fixtures for them can't carry one.
+    if (NULL_BODY_STATUSES.has(status) || route.body === null || route.body === undefined) {
+      return new Response(null, { status, headers: { ...route.headers } });
+    }
     const body = typeof route.body === 'string' ? route.body : JSON.stringify(route.body);
     const headers = { 'content-type': 'application/json', ...route.headers };
-    return new Response(body, { status: route.status ?? 200, headers });
+    return new Response(body, { status, headers });
   };
   return { fetch, calls };
 }
@@ -78,17 +109,13 @@ export async function assertDetectorContract<P>(
 
   const pollOnce = async (): Promise<unknown[]> => {
     const ctx: PollContext = { fetch, now: () => new Date(clock), signal: new AbortController().signal, log: silentLogger };
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = async (input) => {
-      const url = input instanceof Request ? input.url : String(input);
-      throw new Error(`Detector used global fetch (${url}); use ctx.fetch instead`);
-    };
+    blockGlobalFetch();
     try {
       const result = await detector.poll(ctx);
       if (!Array.isArray(result)) throw new Error('poll() did not return an array');
       return result;
     } finally {
-      globalThis.fetch = realFetch;
+      restoreGlobalFetch();
     }
   };
 
@@ -102,27 +129,30 @@ export async function assertDetectorContract<P>(
     throw new DetectorContractError(detector.id, problems);
   }
 
-  const findings: Finding<P>[] = [];
-  const keys = new Set<string>();
-  first.forEach((item, index) => {
-    const envelope = findingEnvelopeSchema.safeParse(item);
-    if (!envelope.success) {
-      problems.push(`finding[${index}] envelope: ${envelope.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`);
-      return;
-    }
-    const payload = detector.payloadSchema.safeParse(envelope.data.payload);
-    if (!payload.success) {
-      problems.push(`finding[${index}] (${envelope.data.key}) payload: ${payload.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`);
-      return;
-    }
-    if (keys.has(envelope.data.key)) problems.push(`duplicate key ${envelope.data.key}`);
-    keys.add(envelope.data.key);
-    findings.push({ ...envelope.data, payload: payload.data });
-  });
+  /** Validates one poll's output; both polls must pass on their own. */
+  const check = (items: unknown[], label: string): { findings: Finding<P>[]; keys: Set<string> } => {
+    const findings: Finding<P>[] = [];
+    const keys = new Set<string>();
+    items.forEach((item, index) => {
+      const envelope = findingEnvelopeSchema.safeParse(item);
+      if (!envelope.success) {
+        problems.push(`${label} finding[${index}] envelope: ${envelope.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`);
+        return;
+      }
+      const payload = detector.payloadSchema.safeParse(envelope.data.payload);
+      if (!payload.success) {
+        problems.push(`${label} finding[${index}] (${envelope.data.key}) payload: ${payload.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`);
+        return;
+      }
+      if (keys.has(envelope.data.key)) problems.push(`${label} duplicate key ${envelope.data.key}`);
+      keys.add(envelope.data.key);
+      findings.push({ ...envelope.data, payload: payload.data });
+    });
+    return { findings, keys };
+  };
 
-  const secondKeys = new Set(
-    second.map((item) => (item && typeof item === 'object' && 'key' in item ? String(item.key) : '')),
-  );
+  const { findings, keys } = check(first, 'poll 1');
+  const { keys: secondKeys } = check(second, 'poll 2');
   const unstable = [...keys].filter((k) => !secondKeys.has(k));
   const extra = [...secondKeys].filter((k) => !keys.has(k));
   if (unstable.length || extra.length) {

@@ -100,6 +100,56 @@ describe('assertDetectorContract', () => {
     expect(problems.some((p) => p.includes('(item#8) payload'))).toBe(true);
   });
 
+  it('fails a detector whose second poll returns invalid findings', async () => {
+    let calls = 0;
+    const flaky: Detector<Payload> = {
+      ...goodDetector,
+      id: 'flaky',
+      async poll(ctx) {
+        const findings = await goodDetector.poll(ctx);
+        if (calls++ === 0) return findings;
+        return [...findings, { ...findings[0]!, payload: { stars: 'many' } as unknown as Payload }];
+      },
+    };
+
+    const error = await assertDetectorContract(flaky, { routes }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(DetectorContractError);
+    expect((error as DetectorContractError).problems.some((p) => p.startsWith('poll 2'))).toBe(true);
+  });
+
+  it('keeps global fetch blocked until the last overlapping check finishes, then restores it', async () => {
+    const original = globalThis.fetch;
+    /** A detector whose polls wait until open() is called. */
+    const gated = (id: string) => {
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => (open = resolve));
+      const detector: Detector<Payload> = {
+        ...goodDetector,
+        id,
+        async poll(ctx) {
+          await gate;
+          return goodDetector.poll(ctx);
+        },
+      };
+      return { detector, open };
+    };
+    const a = gated('a');
+    const b = gated('b');
+
+    // Start A, then B, so B is still polling after A finishes.
+    const checkA = assertDetectorContract(a.detector, { routes });
+    const checkB = assertDetectorContract(b.detector, { routes });
+
+    a.open();
+    await checkA;
+    expect(globalThis.fetch).not.toBe(original);
+
+    b.open();
+    await checkB;
+    expect(globalThis.fetch).toBe(original);
+  });
+
   it('fails when fixtures produce no findings unless that is allowed', async () => {
     const empty = [{ match: 'https://api.example.com/items', body: [] }];
 
@@ -128,5 +178,20 @@ describe('fixtureFetch', () => {
       { method: 'POST', url: 'https://api.example.com/items' },
     ]);
     await expect(fetch('https://api.example.com/items', { method: 'DELETE' })).rejects.toThrow(/Unrecorded request/);
+  });
+
+  it('serves no-content and not-modified fixtures without a body', async () => {
+    const { fetch } = fixtureFetch([
+      { match: 'https://api.example.com/empty', status: 204, body: '' },
+      { match: 'https://api.example.com/cached', status: 304, body: { ignored: true }, headers: { etag: '"v1"' } },
+    ]);
+
+    const empty = await fetch('https://api.example.com/empty');
+    const cached = await fetch('https://api.example.com/cached');
+
+    expect(empty.status).toBe(204);
+    expect(await empty.text()).toBe('');
+    expect(cached.status).toBe(304);
+    expect(cached.headers.get('etag')).toBe('"v1"');
   });
 });

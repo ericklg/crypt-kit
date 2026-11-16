@@ -26,8 +26,13 @@ export interface Haunt<P = unknown> {
   detectorId: string;
   status: HauntStatus;
   finding: Finding<P>;
-  /** Hash of `finding.payload`, used to re-draft a spared haunt only when it changes. */
+  /** Hash of the latest `finding.payload`. */
   payloadHash: string;
+  /**
+   * Payload hash at the moment the user spared this haunt, or null if never spared.
+   * Survives resolution, so an unchanged item that disappears and returns stays spared (R4.3).
+   */
+  sparedPayloadHash: string | null;
   draft: Draft | null;
   result: ActionResult | null;
   /** Last draft or action error, shown on the board. */

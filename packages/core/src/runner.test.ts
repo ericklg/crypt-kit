@@ -157,6 +157,19 @@ describe('run: detect and remember', () => {
     expect(warn).toHaveBeenCalledWith('dropped finding with invalid payload', expect.objectContaining({ key: 'bad-payload' }));
   });
 
+  it('does not resolve a tracked haunt that comes back with invalid data', async () => {
+    const t = setup();
+    t.setFindings([finding('a')]);
+    await t.runner.run();
+
+    t.setFindings([{ ...finding('a'), payload: { count: 'broken' } }]);
+    const report = await t.runner.run();
+
+    expect(report).toMatchObject({ invalid: 1, resolved: 0 });
+    expect((await t.store.get('a'))?.status).toBe('drafted');
+    expect(t.draft).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the first finding when a poll repeats a key', async () => {
     const t = setup();
     t.setFindings([finding('a', 1), finding('a', 2)]);
@@ -211,6 +224,7 @@ describe('run: detect and remember', () => {
       status: 'drafted',
       finding: finding('a'),
       payloadHash: 'x',
+      sparedPayloadHash: null,
       draft: null,
       result: null,
       error: null,
@@ -354,6 +368,44 @@ describe('approval gate', () => {
     expect((await t.store.get('a'))?.status).toBe('approved');
   });
 
+  it('runs the action once when two runners share a store and both approve', async () => {
+    const t = setup();
+    t.setFindings([finding('a')]);
+    await t.runner.run();
+    const otherRun = vi.fn<Action<Payload>['run']>(async (): Promise<ActionResult> => ({ ok: true, message: 'Done', url: null }));
+    const other = createRunner<Payload>({
+      detector: { id: 'test-detector', payloadSchema, poll: async () => [] },
+      agent: { draft: t.draft },
+      action: { id: 'test-action', run: otherRun },
+      store: t.store,
+      log: silentLogger,
+    });
+    let release!: () => void;
+    t.actionRun.mockImplementationOnce(
+      () => new Promise<ActionResult>((resolve) => (release = () => resolve({ ok: true, message: 'Done', url: null }))),
+    );
+
+    const first = t.runner.approve('a');
+    const second = await other.approve('a');
+    release();
+    await first;
+
+    expect(second).toMatchObject({ ok: false, reason: 'in_progress' });
+    expect(t.actionRun.mock.calls.length + otherRun.mock.calls.length).toBe(1);
+  });
+
+  it('ignores edits to inherited property names like toString', async () => {
+    const t = setup();
+    t.setFindings([finding('a')]);
+    await t.runner.run();
+
+    await t.runner.approve('a', { options: { toString: true, constructor: false } });
+
+    const [, draft] = t.actionRun.mock.calls[0]!;
+    expect(draft.options).toEqual({ close: true });
+    expect(Object.keys(draft.options)).toEqual(['close']);
+  });
+
   it('uses the edited proposal and only toggles existing options', async () => {
     const t = setup();
     t.setFindings([finding('a')]);
@@ -438,6 +490,39 @@ describe('spare', () => {
 
     expect(report).toMatchObject({ reopened: 1, drafted: 1 });
     expect((await t.store.get('a'))?.status).toBe('drafted');
+  });
+
+  it('keeps a rejection when the item disappears and returns unchanged', async () => {
+    const t = setup();
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    await t.runner.spare('a');
+
+    t.setFindings([]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('resolved');
+
+    t.setFindings([finding('a', 1)]);
+    const report = await t.runner.run();
+
+    expect(report).toMatchObject({ reopened: 0, drafted: 0 });
+    expect((await t.store.get('a'))?.status).toBe('spared');
+    expect(t.draft).toHaveBeenCalledTimes(1);
+  });
+
+  it('redrafts a spared item that disappears and returns changed', async () => {
+    const t = setup();
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    await t.runner.spare('a');
+    t.setFindings([]);
+    await t.runner.run();
+
+    t.setFindings([finding('a', 2)]);
+    const report = await t.runner.run();
+
+    expect(report).toMatchObject({ reopened: 1, drafted: 1 });
+    expect(await t.store.get('a')).toMatchObject({ status: 'drafted', sparedPayloadHash: null });
   });
 
   it('resolves a spared haunt that disappears', async () => {
