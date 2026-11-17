@@ -107,17 +107,18 @@ export interface Runner<P> {
 | From | Event | To |
 |---|---|---|
 | (none) | seen by a poll | `new` |
-| `new` | agent returns a valid draft / fails | `drafted` / `draft_failed` |
+| `new`, or `drafting` older than `draftClaimTimeoutMs` | run: claim (before calling the agent) | `drafting` |
+| `drafting` | agent returns a valid draft / fails | `drafted` / `draft_failed` |
 | `drafted`, `action_failed` | approve: claim (before the action runs) | `approving` |
 | `approving` | action ok / fails, result saved | `approved` / `action_failed` |
-| `approving` | result can't be saved, or the process died | stays `approving` (needs a check) |
-| `approving` | settle `done` / `not_done` (user checked the source) | `approved` / `drafted` |
-| `new`, `drafted`, `draft_failed`, `action_failed` | spare | `spared` |
+| `approving` | action times out, result can't be saved, or the process died | stays `approving` (needs a check) |
+| `approving`, claimed more than `settleAfterMs` ago | settle `done` / `not_done` (user checked the source) | `approved` / `drafted` |
+| `new`, `drafting`, `drafted`, `draft_failed`, `action_failed` | spare (a draft in flight is discarded) | `spared` |
 | `drafted`, `draft_failed` | redraft | `drafted` / `draft_failed` |
 | any open status, `spared` | key absent from a successful poll (an invalid finding still counts as present) | `resolved` |
 | `resolved`, `spared` | seen with the same payload hash it had when spared | `spared` (the rejection sticks) |
 | `resolved`, `spared` | seen otherwise | `new` (keeps `firstSeenAt`) |
-| `approving`, `approved` | any poll | unchanged (a poll never writes them) |
+| `drafting`, `approving`, `approved` | seen by a poll | unchanged (a poll never rewrites a claim) |
 
 ### Runner rules
 
@@ -127,6 +128,9 @@ export interface Runner<P> {
 - `maxDraftsPerRun` defaults to 20 (R3.4). Findings over the cap stay `new` and are drafted oldest-first on the next run.
 - Every write is compare-and-set on `version`, so concurrent writers in any process can't overwrite each other. A write that loses is skipped and counted in `RunReport.conflicts`, or returned as `conflict` from an operation.
 - Approve is claim, act, record. The claim moves the haunt to `approving` with a versioned write before the action runs, so only one process can reach the action (R4.2). If the result can't be saved, the haunt stays `approving` and approve returns `outcome_unknown`. The board then asks the user to check the source and settle it, rather than offering approve again.
+- Actions get an `AbortSignal` and a hard timeout (`actionTimeoutMs`, default 60 s). A timeout leaves the haunt `approving`, never `action_failed`, because the action may still have landed.
+- `settle()` is refused until `settleAfterMs` (default 5 min, must exceed the action timeout) has passed since the claim. Before then the original attempt, possibly in another process, could still act, so retrying could run the action twice. Action-level idempotency (task 7's marker) closes the remaining gap.
+- Drafting is claimed too: a run moves a haunt to `drafting` with a versioned write before calling the agent, so concurrent runs pay for one model call. A claim older than `draftClaimTimeoutMs` (default 2 min) counts as abandoned and is taken over.
 - An in-process per-key lock, shared by runners on the same store object, avoids wasted agent and action calls inside one process. Versioned writes are what make it correct across processes.
 - A failed poll resolves nothing, since it says nothing about what disappeared.
 - Approve edits can change the proposal and toggle options the draft already has. They cannot add new options.

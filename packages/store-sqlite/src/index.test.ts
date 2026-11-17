@@ -59,6 +59,10 @@ describe('createSqliteStore', () => {
     expect(await poltergeist.put(sampleHaunt({ key: 'shared' }), null)).toBe(true);
   });
 
+  it.each(['order', 'group', 'select', 'table'])('works with the reserved word %s as a table name', async (tableName) => {
+    await assertTrackerStoreContract(async () => open(':memory:', tableName));
+  });
+
   it('rejects table names that could inject SQL', () => {
     expect(() => createSqliteStore({ url: ':memory:', tableName: 'haunts; drop table x' })).toThrow(/Invalid table name/);
     expect(() => createSqliteStore({ url: ':memory:', tableName: '1haunts' })).toThrow(/Invalid table name/);
@@ -137,6 +141,6 @@ describe('two processes on one database', () => {
 
     expect(ra.created + rb.created).toBe(1);
     expect(ra.drafted + rb.drafted).toBe(1);
-    expect(await open(url).get('a')).toMatchObject({ status: 'drafted', version: 2 });
+    expect(await open(url).get('a')).toMatchObject({ status: 'drafted', version: 3 });
   });
 });

@@ -1,5 +1,5 @@
 import { createClient, type Client, type InValue, type Row } from '@libsql/client';
-import { checkPutVersion, type Haunt, type ListFilter, type TrackerStore } from '@crypt-kit/core';
+import { checkPutVersion, compareHaunts, type Haunt, type ListFilter, type TrackerStore } from '@crypt-kit/core';
 
 export const DEFAULT_TABLE_NAME = 'crypt_haunts';
 export const DEFAULT_DATABASE_URL = 'file:crypt-kit.db';
@@ -43,12 +43,17 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
         : { url: options.url ?? DEFAULT_DATABASE_URL },
     );
 
+  // Always quoted: a valid name can still be a keyword (`order`, `group`).
+  // TABLE_NAME already rules out quote characters, so no escaping is needed.
+  const t = `"${table}"`;
+  const index = `"${table}_by_detector"`;
+
   let ready: Promise<void> | null = null;
   const migrate = (): Promise<void> => {
     ready ??= client
       .batch(
         [
-          `create table if not exists ${table} (
+          `create table if not exists ${t} (
             key text primary key,
             detector_id text not null,
             status text not null,
@@ -56,7 +61,7 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
             first_seen_at text not null,
             data text not null
           )`,
-          `create index if not exists ${table}_by_detector on ${table} (detector_id, status, first_seen_at, key)`,
+          `create index if not exists ${index} on ${t} (detector_id, status, first_seen_at, key)`,
         ],
         'write',
       )
@@ -75,7 +80,7 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
 
     async get(key) {
       await migrate();
-      const result = await client.execute({ sql: `select data from ${table} where key = ?`, args: [key] });
+      const result = await client.execute({ sql: `select data from ${t} where key = ?`, args: [key] });
       const row = result.rows[0];
       return row ? toHaunt(row) : null;
     },
@@ -87,12 +92,12 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
       const result =
         expectedVersion === null
           ? await client.execute({
-              sql: `insert into ${table} (key, detector_id, status, version, first_seen_at, data)
+              sql: `insert into ${t} (key, detector_id, status, version, first_seen_at, data)
                     values (?, ?, ?, ?, ?, ?) on conflict (key) do nothing`,
               args: [haunt.key, haunt.detectorId, haunt.status, haunt.version, haunt.firstSeenAt, data],
             })
           : await client.execute({
-              sql: `update ${table}
+              sql: `update ${t}
                     set detector_id = ?, status = ?, version = ?, first_seen_at = ?, data = ?
                     where key = ? and version = ?`,
               args: [haunt.detectorId, haunt.status, haunt.version, haunt.firstSeenAt, data, haunt.key, expectedVersion],
@@ -113,10 +118,11 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
         where.push(`status in (${filter.status.map(() => '?').join(', ')})`);
         args.push(...filter.status);
       }
-      // Default BINARY collation compares like plain JS string comparison (see compareHaunts).
-      const sql = `select data from ${table}${where.length ? ` where ${where.join(' and ')}` : ''} order by first_seen_at, key`;
+      const sql = `select data from ${t}${where.length ? ` where ${where.join(' and ')}` : ''}`;
       const result = await client.execute({ sql, args });
-      return result.rows.map(toHaunt);
+      // Sort in JS: SQLite's BINARY collation orders UTF-8 bytes, which differs from
+      // JS's UTF-16 order for some keys (e.g. U+E000 vs U+10000). compareHaunts is the contract.
+      return result.rows.map(toHaunt).sort(compareHaunts);
     },
 
     close() {

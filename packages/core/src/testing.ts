@@ -265,6 +265,16 @@ export async function assertTrackerStoreContract(makeStore: () => Promise<Tracke
   }
 
   {
+    // JS compares UTF-16 code units; UTF-8 byte order (e.g. SQLite BINARY) puts these the other way round.
+    const store = await makeStore();
+    const at = '2026-11-03T00:00:00.000Z';
+    for (const key of ['\u{10000}', '\uE000', 'z']) await store.put(sampleHaunt({ key, firstSeenAt: at }), null);
+    const order = (await store.list()).map((h) => h.key);
+    const want = ['z', '\u{10000}', '\uE000'];
+    expect(same(order, want), `list() must order keys by JS string comparison (UTF-16), got ${JSON.stringify(order)}`);
+  }
+
+  {
     const store = await makeStore();
     await store.put(sampleHaunt(), null);
     const attempts = await Promise.all(
