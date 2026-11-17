@@ -2,13 +2,16 @@ import type { Action, ActionResult } from './action.js';
 import type { Detector, PollContext } from './detector.js';
 import { draftSchema, type Agent, type Draft } from './draft.js';
 import { findingEnvelopeSchema, type Finding } from './finding.js';
-import { hashPayload } from './hash.js';
-import { OPEN_STATUSES, RESOLVABLE_STATUSES, type Haunt, type HauntStatus } from './haunt.js';
+import { findNonJson, hashPayload } from './hash.js';
+import { CLAIMED_STATUSES, OPEN_STATUSES, RESOLVABLE_STATUSES, type Haunt, type HauntStatus } from './haunt.js';
 import { consoleLogger, errorMessage, type Logger } from './logger.js';
 import type { TrackerStore } from './tracker.js';
 
 export const DEFAULT_MAX_DRAFTS_PER_RUN = 20;
 export const DEFAULT_POLL_TIMEOUT_MS = 30_000;
+export const DEFAULT_ACTION_TIMEOUT_MS = 60_000;
+export const DEFAULT_SETTLE_AFTER_MS = 5 * 60_000;
+export const DEFAULT_DRAFT_CLAIM_TIMEOUT_MS = 2 * 60_000;
 
 export interface RunnerOptions<P> {
   detector: Detector<P>;
@@ -18,6 +21,19 @@ export interface RunnerOptions<P> {
   /** Cap on agent calls per run (R3.4). Findings over the cap are drafted on the next run. */
   maxDraftsPerRun?: number;
   pollTimeoutMs?: number;
+  /**
+   * How long an action may run before the runner aborts it and leaves the haunt
+   * `approving` for the user to check. Default 60 s.
+   */
+  actionTimeoutMs?: number;
+  /**
+   * How long after an approval claim `settle()` is allowed. Must be longer than
+   * `actionTimeoutMs`, so the original attempt has stopped before anyone retries it.
+   * Default 5 min.
+   */
+  settleAfterMs?: number;
+  /** After this long, a `drafting` claim is treated as abandoned and can be taken over. Default 2 min. */
+  draftClaimTimeoutMs?: number;
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
   log?: Logger;
@@ -38,9 +54,23 @@ export interface RunReport {
   draftFailed: number;
   /** New haunts left for the next run because of the draft cap. */
   deferred: number;
+  /** Writes skipped because another runner or process changed the haunt first. */
+  conflicts: number;
 }
 
-export type FailureReason = 'not_found' | 'not_allowed' | 'in_progress' | 'invalid_draft' | 'action_failed';
+export type FailureReason =
+  | 'not_found'
+  | 'not_allowed'
+  /** Another operation on this haunt is running in this process. */
+  | 'in_progress'
+  /** Another runner or process changed the haunt first. Reload and try again. */
+  | 'conflict'
+  | 'invalid_draft'
+  | 'action_failed'
+  /** The action was attempted but its result couldn't be saved. The haunt is left `approving`. */
+  | 'outcome_unknown'
+  /** The claim took longer than the action timeout to save, so the action was never started. */
+  | 'not_started';
 
 export type OperationResult<P> =
   | { ok: true; haunt: Haunt<P> }
@@ -52,15 +82,26 @@ export interface DraftEdits {
   options?: Record<string, boolean>;
 }
 
+/** What the user found at the source for a haunt stuck in `approving`. */
+export type SettleOutcome = 'done' | 'not_done';
+
 export interface Runner<P> {
   /** Poll, dedupe, resolve and draft. Concurrent calls share one run. */
   run(): Promise<RunReport>;
-  /** Run the action once for a drafted haunt. The only path to a side effect (R4.1). */
+  /**
+   * Claim the haunt as `approving`, run the action once, then record the result.
+   * The only path to a side effect (R4.1).
+   */
   approve(key: string, edits?: DraftEdits): Promise<OperationResult<P>>;
   /** Reject a haunt. It is re-drafted only if its payload changes (R4.3). */
   spare(key: string): Promise<OperationResult<P>>;
   /** Ask the agent again for a failed or unwanted draft. */
   redraft(key: string): Promise<OperationResult<P>>;
+  /**
+   * Resolve a haunt stuck in `approving` after the user checked the source:
+   * `done` marks it approved, `not_done` returns it to `drafted` so it can be approved again.
+   */
+  settle(key: string, outcome: SettleOutcome): Promise<OperationResult<P>>;
   list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
 }
 
@@ -88,6 +129,8 @@ function locksFor(store: TrackerStore): Set<string> {
 
 const APPROVABLE: readonly HauntStatus[] = ['drafted', 'action_failed'];
 const REDRAFTABLE: readonly HauntStatus[] = ['drafted', 'draft_failed'];
+const SPARABLE: readonly HauntStatus[] = [...OPEN_STATUSES, 'drafting'];
+
 
 export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   const { detector, agent, action, store } = options;
@@ -97,13 +140,39 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   const now = options.now ?? (() => new Date());
   const log = options.log ?? consoleLogger;
 
+  const actionTimeoutMs = options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
+  const settleAfterMs = options.settleAfterMs ?? DEFAULT_SETTLE_AFTER_MS;
+  const draftClaimTimeoutMs = options.draftClaimTimeoutMs ?? DEFAULT_DRAFT_CLAIM_TIMEOUT_MS;
+
   if (!Number.isInteger(maxDrafts) || maxDrafts < 0) {
     throw new RangeError('maxDraftsPerRun must be a non-negative integer');
   }
+  for (const [name, value] of Object.entries({ actionTimeoutMs, settleAfterMs, draftClaimTimeoutMs })) {
+    if (!Number.isInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive integer`);
+  }
+  if (settleAfterMs <= actionTimeoutMs) {
+    throw new RangeError('settleAfterMs must be longer than actionTimeoutMs');
+  }
 
-  // Keys with an operation in flight, shared by every runner on the same store, so
-  // per-request runners (e.g. in route handlers) can't approve one haunt twice.
-  // Cross-process locking is the store's job (see store adapters).
+  /** ISO time `ms` from now, by the runner's clock. */
+  const inMs = (ms: number) => new Date(now().getTime() + ms).toISOString();
+
+  /**
+   * Whether a claim has expired, using the deadline the claiming runner stored.
+   * Falls back to this runner's own window for a claim without one.
+   */
+  function claimExpired(haunt: Haunt): boolean {
+    const fallbackMs = haunt.status === 'approving' ? settleAfterMs : draftClaimTimeoutMs;
+    const deadline = haunt.claimExpiresAt ?? new Date(Date.parse(haunt.updatedAt) + fallbackMs).toISOString();
+    return now().getTime() >= Date.parse(deadline);
+  }
+
+  /** A live claim another worker (maybe another process) still holds. */
+  const liveClaim = (haunt: Haunt) => CLAIMED_STATUSES.includes(haunt.status) && !claimExpired(haunt);
+
+  // Keys with an operation in flight, shared by every runner on the same store object.
+  // This only saves wasted work inside one process; versioned writes are what keep
+  // separate processes safe.
   const busy = locksFor(store);
   const inFlightRuns = runsFor(store);
 
@@ -124,9 +193,15 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     }
   }
 
-  async function save(haunt: Haunt<P>): Promise<Haunt<P>> {
-    await store.upsert(haunt as Haunt);
-    return haunt;
+  /**
+   * Writes `next` as the version after `prev` (or as a new haunt when `prev` is null).
+   * Returns the saved haunt, or null if another writer got there first.
+   */
+  async function write(prev: Haunt<P> | null, next: Haunt<P>): Promise<Haunt<P> | null> {
+    const haunt: Haunt<P> = { ...next, version: (prev?.version ?? 0) + 1 };
+    const saved = await store.put(haunt as Haunt, prev ? prev.version : null);
+    if (!saved) log.info('write conflict, skipped', { detector: detector.id, key: haunt.key });
+    return saved ? haunt : null;
   }
 
   function freshHaunt(finding: Finding<P>, payloadHash: string, at: string, firstSeenAt = at): Haunt<P> {
@@ -134,29 +209,50 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       key: finding.key,
       detectorId: detector.id,
       status: 'new',
+      version: 0,
       finding,
       payloadHash,
       sparedPayloadHash: null,
       draft: null,
       result: null,
       error: null,
+      claimExpiresAt: null,
       firstSeenAt,
       lastSeenAt: at,
       updatedAt: at,
     };
   }
 
-  /** Calls the agent for one haunt and stores the outcome. Caller must hold the lock. */
-  async function draftLocked(haunt: Haunt<P>): Promise<Haunt<P>> {
-    const at = now().toISOString();
+  /**
+   * Claims the haunt as `drafting` before calling the agent, so only one process pays
+   * for the model call, then stores the outcome. Null means another writer won.
+   */
+  async function claimAndDraft(haunt: Haunt<P>): Promise<Haunt<P> | null> {
+    const claimed = await write(haunt, {
+      ...haunt,
+      status: 'drafting',
+      error: null,
+      claimExpiresAt: inMs(draftClaimTimeoutMs),
+      updatedAt: now().toISOString(),
+    });
+    if (!claimed) return null;
+    let next: Haunt<P>;
     try {
-      const parsed = draftSchema.safeParse(await agent.draft(haunt.finding));
+      const parsed = draftSchema.safeParse(await agent.draft(claimed.finding));
       if (!parsed.success) throw new Error('Agent returned a draft that failed validation');
-      return await save({ ...haunt, status: 'drafted', draft: parsed.data, error: null, updatedAt: at });
+      next = { ...claimed, status: 'drafted', draft: parsed.data, error: null, claimExpiresAt: null, updatedAt: now().toISOString() };
     } catch (error) {
       log.warn('draft failed', { detector: detector.id, key: haunt.key, error: errorMessage(error) });
-      return await save({ ...haunt, status: 'draft_failed', draft: null, error: errorMessage(error), updatedAt: at });
+      next = {
+        ...claimed,
+        status: 'draft_failed',
+        draft: null,
+        error: errorMessage(error),
+        claimExpiresAt: null,
+        updatedAt: now().toISOString(),
+      };
     }
+    return write(claimed, next);
   }
 
   /**
@@ -191,6 +287,13 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         });
         continue;
       }
+      // Checked after the schema, since a schema can transform values (e.g. into Dates).
+      const nonJson = findNonJson(payload.data);
+      if (nonJson) {
+        invalid++;
+        log.warn('dropped finding with a non-JSON payload', { detector: detector.id, key: envelope.data.key, issue: nonJson });
+        continue;
+      }
       if (findings.has(envelope.data.key)) {
         invalid++;
         log.warn('dropped finding with duplicate key', { detector: detector.id, key: envelope.data.key });
@@ -213,6 +316,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       drafted: 0,
       draftFailed: 0,
       deferred: 0,
+      conflicts: 0,
     };
 
     // Anything seen at or after this instant was written by a newer poll than ours.
@@ -241,8 +345,8 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         const payloadHash = hashPayload(finding.payload);
         const existing = await store.get(finding.key);
         if (!existing) {
-          await save(freshHaunt(finding, payloadHash, at));
-          report.created++;
+          if (await write(null, freshHaunt(finding, payloadHash, at))) report.created++;
+          else report.conflicts++;
           return;
         }
         if (existing.detectorId !== detector.id) {
@@ -250,45 +354,63 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           return;
         }
         const current = existing as Haunt<P>;
-        const refreshed = { ...current, finding, payloadHash, lastSeenAt: at };
+        // Never rewrite an approval (claimed or done) or a draft claim someone still holds:
+        // bumping the version would make their final write fail.
+        if (current.status === 'approving' || current.status === 'approved' || liveClaim(current)) return;
 
-        if (current.status === 'spared' || current.status === 'resolved') {
+        const refreshed: Haunt<P> = { ...current, finding, payloadHash, lastSeenAt: at };
+        let next = refreshed;
+        let reopened = false;
+        if (current.status === 'drafting') {
+          // An abandoned draft claim: release it with the latest observation, so the
+          // takeover drafts from the current payload, not the one the dead worker had.
+          next = { ...refreshed, status: 'new', claimExpiresAt: null, error: null, updatedAt: at };
+        } else if (current.status === 'spared' || current.status === 'resolved') {
           // A rejection sticks until the payload changes, even across a disappear/return (R4.3).
           if (current.sparedPayloadHash !== null && current.sparedPayloadHash === payloadHash) {
-            await save(current.status === 'resolved' ? { ...refreshed, status: 'spared', updatedAt: at } : refreshed);
-            return;
+            next = current.status === 'resolved' ? { ...refreshed, status: 'spared', updatedAt: at } : refreshed;
+          } else {
+            next = freshHaunt(finding, payloadHash, at, current.firstSeenAt);
+            reopened = true;
           }
-          await save(freshHaunt(finding, payloadHash, at, current.firstSeenAt));
-          report.reopened++;
-          return;
         }
-        await save(refreshed);
+        const saved = await write(current, next);
+        if (!saved) report.conflicts++;
+        else if (reopened) report.reopened++;
       });
     }
 
-    // 3. Resolve live haunts the source no longer reports at all (R2.3).
-    for (const haunt of await store.list({ detectorId: detector.id, status: RESOLVABLE_STATUSES })) {
-      if (observed.has(haunt.key)) continue;
+    // 3. Resolve live haunts the source no longer reports at all (R2.3). A draft claim
+    //    still held elsewhere is left alone; an abandoned one resolves like any open haunt.
+    const resolvable = (h: Haunt) =>
+      RESOLVABLE_STATUSES.includes(h.status) || (h.status === 'drafting' && claimExpired(h));
+    for (const haunt of await store.list({ detectorId: detector.id, status: [...RESOLVABLE_STATUSES, 'drafting'] })) {
+      if (observed.has(haunt.key) || !resolvable(haunt)) continue;
       await withLock(haunt.key, async () => {
         const current = await load(haunt.key);
-        if (!current || !RESOLVABLE_STATUSES.includes(current.status)) return;
-        // A newer poll (another runner or process) saw this item after ours started,
-        // so our snapshot is too old to say it disappeared.
-        if (current.lastSeenAt >= pollStartedAt) return;
-        await save({ ...current, status: 'resolved', updatedAt: now().toISOString() });
-        report.resolved++;
+        if (!current || !resolvable(current)) return;
+        // Our snapshot is too old to say the item disappeared if anything touched the haunt
+        // after our poll started: a newer poll saw it, or a draft, spare or settle landed
+        // (a poll that sees a live draft claim can't record lastSeenAt without breaking
+        // the claim). The next run will resolve it if it's really gone.
+        if (current.lastSeenAt >= pollStartedAt || current.updatedAt >= pollStartedAt) return;
+        const resolved: Haunt<P> = { ...current, status: 'resolved', claimExpiresAt: null, updatedAt: now().toISOString() };
+        if (await write(current, resolved)) report.resolved++;
+        else report.conflicts++;
       });
     }
 
-    // 4. Hand off: draft new haunts, oldest first, up to the cap (R3.1, R3.4).
+    // 4. Hand off: draft new haunts (including released abandoned claims), oldest first,
+    //    up to the cap (R3.1, R3.4).
     const pending = await store.list({ detectorId: detector.id, status: ['new'] });
     report.deferred = Math.max(0, pending.length - maxDrafts);
     for (const haunt of pending.slice(0, maxDrafts)) {
       await withLock(haunt.key, async () => {
         const current = await load(haunt.key);
         if (!current || current.status !== 'new') return;
-        const drafted = await draftLocked(current);
-        if (drafted.status === 'drafted') report.drafted++;
+        const drafted = await claimAndDraft(current);
+        if (!drafted) report.conflicts++;
+        else if (drafted.status === 'drafted') report.drafted++;
         else report.draftFailed++;
       });
     }
@@ -300,6 +422,8 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   function fail(reason: FailureReason, message: string, haunt: Haunt<P> | null = null): OperationResult<P> {
     return { ok: false, reason, message, haunt };
   }
+
+  const CONFLICT_MESSAGE = 'This haunt changed somewhere else. Reload and try again.';
 
   /** Locks the key, loads the haunt and checks its status before running `fn`. */
   async function operate(
@@ -327,13 +451,35 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     return { ...draft, proposal: edits.proposal ?? draft.proposal, options };
   }
 
-  async function runAction(haunt: Haunt<P>, draft: Draft): Promise<ActionResult> {
+  type Attempt = { timedOut: false; result: ActionResult } | { timedOut: true };
+
+  /**
+   * Runs the action with an abort signal and a hard timeout. A timeout is reported
+   * separately from a failure: the action may still have taken effect.
+   */
+  async function runAction(haunt: Haunt<P>, draft: Draft, budgetMs: number): Promise<Attempt> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<Attempt>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort(new Error('Action timed out'));
+        resolve({ timedOut: true });
+      }, budgetMs);
+    });
+    const attempt = (async (): Promise<Attempt> => {
+      try {
+        const result = await action.run(haunt.finding, draft, { signal: controller.signal });
+        if (result && typeof result === 'object' && 'ok' in result) return { timedOut: false, result };
+        return { timedOut: false, result: { ok: false, error: 'Action returned an invalid result' } };
+      } catch (error) {
+        if (controller.signal.aborted) return { timedOut: true };
+        return { timedOut: false, result: { ok: false, error: errorMessage(error) } };
+      }
+    })();
     try {
-      const result = await action.run(haunt.finding, draft);
-      if (result && typeof result === 'object' && 'ok' in result) return result;
-      return { ok: false, error: 'Action returned an invalid result' };
-    } catch (error) {
-      return { ok: false, error: errorMessage(error) };
+      return await Promise.race([attempt, timeout]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -354,38 +500,144 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         const parsed = draftSchema.safeParse(applyEdits(haunt.draft, edits));
         if (!parsed.success) return fail('invalid_draft', 'Edited draft failed validation', haunt);
 
-        const result = await runAction(haunt, parsed.data);
+        // 1. Claim. Only one writer can move this version to `approving`, so only one
+        //    process ever reaches the action. If we die after this, the haunt stays
+        //    `approving` and the user settles it instead of re-approving it.
+        //    The deadline is stored with the claim, so a runner with a shorter window can't
+        //    settle it early while our action is still allowed to run.
+        //    The action's own deadline counts from before the claim write, so a slow
+        //    acknowledgement eats into its budget and it always ends before claimExpiresAt.
+        const actionDeadline = now().getTime() + actionTimeoutMs;
+        const claimed = await write(haunt, {
+          ...haunt,
+          status: 'approving',
+          draft: parsed.data,
+          error: null,
+          claimExpiresAt: inMs(settleAfterMs),
+          updatedAt: now().toISOString(),
+        });
+        if (!claimed) return fail('conflict', CONFLICT_MESSAGE, haunt);
+
+        // 2. Act, within whatever budget the claim left us.
+        const budgetMs = actionDeadline - now().getTime();
+        if (budgetMs <= 0) {
+          // The action never started, so hand the haunt back unless someone else already
+          // has (e.g. settled it after our deadline).
+          log.warn('claim acknowledged too late; action not started', { detector: detector.id, key, action: action.id });
+          const released = await write(claimed, {
+            ...claimed,
+            status: haunt.status,
+            draft: haunt.draft,
+            result: haunt.result,
+            error: haunt.error,
+            claimExpiresAt: null,
+            updatedAt: now().toISOString(),
+          }).catch(() => null);
+          return fail('not_started', 'Claiming this haunt took too long, so the action was not started. Nothing was done; try again.', released ?? claimed);
+        }
+        const attempt = await runAction(claimed, parsed.data, budgetMs);
+        if (attempt.timedOut) {
+          log.error('action timed out; haunt left approving', { detector: detector.id, key, action: action.id, actionTimeoutMs });
+          return fail(
+            'outcome_unknown',
+            "The action didn't finish in time and may or may not have run. Check the source, then settle this haunt.",
+            claimed,
+          );
+        }
+        const { result } = attempt;
+
+        // 3. Record. Nothing else writes an `approving` haunt except settle(), which waits
+        //    out settleAfterMs, so a failure here means the store is unavailable.
         const at = now().toISOString();
+        const next: Haunt<P> = result.ok
+          ? { ...claimed, status: 'approved', result, error: null, claimExpiresAt: null, updatedAt: at }
+          : { ...claimed, status: 'action_failed', result, error: result.error, claimExpiresAt: null, updatedAt: at };
+        let saved: Haunt<P> | null = null;
+        let saveError: string | null = null;
+        try {
+          saved = await write(claimed, next);
+        } catch (error) {
+          saveError = errorMessage(error);
+        }
+        if (!saved) {
+          log.error('action outcome not saved; haunt left approving', {
+            detector: detector.id,
+            key,
+            action: action.id,
+            actionOk: result.ok,
+            error: saveError ?? 'write conflict',
+          });
+          return fail(
+            'outcome_unknown',
+            result.ok
+              ? 'The action ran, but its result could not be saved. Check the source, then settle this haunt.'
+              : 'The action failed, and that result could not be saved. Check the source, then settle this haunt.',
+            claimed,
+          );
+        }
+
         if (result.ok) {
-          const saved = await save({ ...haunt, status: 'approved', draft: parsed.data, result, error: null, updatedAt: at });
           log.info('action ran', { detector: detector.id, key, action: action.id });
           return { ok: true, haunt: saved };
         }
-        const saved = await save({ ...haunt, status: 'action_failed', draft: parsed.data, result, error: result.error, updatedAt: at });
         log.warn('action failed', { detector: detector.id, key, action: action.id, error: result.error });
         return fail('action_failed', result.error, saved);
       });
     },
 
-    spare(key) {
-      return operate(key, OPEN_STATUSES, async (haunt) => ({
-        ok: true,
-        haunt: await save({
-          ...haunt,
-          status: 'spared',
-          sparedPayloadHash: haunt.payloadHash,
-          error: null,
-          updatedAt: now().toISOString(),
-        }),
-      }));
+    async spare(key) {
+      // No per-key lock: a run or redraft holds it for the whole agent call, and the user
+      // must be able to spare a draft in flight. The versioned write is enough, and the
+      // late draft's own write then conflicts and is dropped.
+      const haunt = await load(key);
+      if (!haunt) return fail('not_found', `No haunt with key ${key}`);
+      if (!SPARABLE.includes(haunt.status)) {
+        return fail('not_allowed', `Haunt is ${haunt.status}; expected ${SPARABLE.join(' or ')}`, haunt);
+      }
+      const saved = await write(haunt, {
+        ...haunt,
+        status: 'spared',
+        sparedPayloadHash: haunt.payloadHash,
+        error: null,
+        claimExpiresAt: null,
+        updatedAt: now().toISOString(),
+      });
+      return saved ? { ok: true, haunt: saved } : fail('conflict', CONFLICT_MESSAGE, haunt);
     },
 
     redraft(key) {
       return operate(key, REDRAFTABLE, async (haunt) => {
-        const drafted = await draftLocked(haunt);
+        const drafted = await claimAndDraft(haunt);
+        if (!drafted) return fail('conflict', CONFLICT_MESSAGE, haunt);
         return drafted.status === 'drafted'
           ? { ok: true, haunt: drafted }
           : fail('invalid_draft', drafted.error ?? 'Draft failed', drafted);
+      });
+    },
+
+    settle(key, outcome) {
+      return operate(key, ['approving'], async (haunt) => {
+        // The original attempt (maybe in another process) is only guaranteed to have
+        // stopped once the deadline its claimer stored has passed. That deadline is the
+        // claimer's settleAfterMs, which is longer than its action timeout.
+        if (!claimExpired(haunt)) {
+          const after = haunt.claimExpiresAt ?? new Date(Date.parse(haunt.updatedAt) + settleAfterMs).toISOString();
+          return fail('not_allowed', `This approval may still be running. You can settle it after ${after}.`, haunt);
+        }
+        const at = now().toISOString();
+        const next: Haunt<P> =
+          outcome === 'done'
+            ? {
+                ...haunt,
+                status: 'approved',
+                result: { ok: true, message: 'Confirmed at the source by the user', url: null },
+                error: null,
+                claimExpiresAt: null,
+                updatedAt: at,
+              }
+            : { ...haunt, status: 'drafted', result: null, error: null, claimExpiresAt: null, updatedAt: at };
+        const saved = await write(haunt, next);
+        return saved ? { ok: true, haunt: saved } : fail('conflict', CONFLICT_MESSAGE, haunt);
       });
     },
 

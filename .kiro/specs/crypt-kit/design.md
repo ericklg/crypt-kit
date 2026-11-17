@@ -8,7 +8,7 @@ A pnpm monorepo. The core loop is framework-free TypeScript. Each app is a thin 
 crypt-kit/
 ├─ packages/
 │  ├─ core/            # Detector, Runner, Tracker, Agent, Action contracts (no React)
-│  ├─ store-sqlite/    # default Tracker adapter (better-sqlite3)
+│  ├─ store-sqlite/    # default TrackerStore adapter (libSQL: local file or Turso)
 │  ├─ board/           # React board components + theme contract
 │  ├─ mcp/             # MCP server over a running app's haunts
 │  └─ create-crypt-app/# scaffold CLI
@@ -80,12 +80,15 @@ export interface Action<P> {
 
 export type HauntStatus =
   | 'new' | 'drafted' | 'draft_failed'
-  | 'approved' | 'action_failed' | 'spared' | 'resolved';
+  | 'approving' | 'approved' | 'action_failed' | 'spared' | 'resolved';
 
+// Every Haunt carries `version` (1 on insert, +1 per write).
 // Kept to three methods so adapters stay small; the runner owns status logic.
 export interface TrackerStore {
   get(key: string): Promise<Haunt | null>;
-  upsert(h: Haunt): Promise<void>;
+  // Compare-and-set: writes only if the stored version equals expectedVersion
+  // (null = key must not exist). Returns false on conflict.
+  put(h: Haunt, expectedVersion: number | null): Promise<boolean>;
   list(filter?: { detectorId?: string; status?: readonly HauntStatus[] }): Promise<Haunt[]>;
 }
 
@@ -94,6 +97,7 @@ export interface Runner<P> {
   approve(key: string, edits?: DraftEdits): Promise<OperationResult<P>>;
   spare(key: string): Promise<OperationResult<P>>;
   redraft(key: string): Promise<OperationResult<P>>;
+  settle(key: string, outcome: 'done' | 'not_done'): Promise<OperationResult<P>>;
   list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
 }
 ```
@@ -103,22 +107,35 @@ export interface Runner<P> {
 | From | Event | To |
 |---|---|---|
 | (none) | seen by a poll | `new` |
-| `new` | agent returns a valid draft / fails | `drafted` / `draft_failed` |
-| `drafted`, `action_failed` | approve → action ok / fails | `approved` / `action_failed` |
-| `new`, `drafted`, `draft_failed`, `action_failed` | spare | `spared` |
+| `new` | run: claim (before calling the agent) | `drafting` |
+| `drafting` past `claimExpiresAt` | seen by a poll / absent from a poll | `new` with the newest payload / `resolved` |
+| `drafting` | agent returns a valid draft / fails | `drafted` / `draft_failed` |
+| `drafted`, `action_failed` | approve: claim (before the action runs) | `approving` |
+| `approving` | action ok / fails, result saved | `approved` / `action_failed` |
+| `approving` | action times out, result can't be saved, or the process died | stays `approving` (needs a check) |
+| `approving` past `claimExpiresAt` | settle `done` / `not_done` (user checked the source) | `approved` / `drafted` |
+| `new`, `drafting`, `drafted`, `draft_failed`, `action_failed` | spare (a draft in flight is discarded) | `spared` |
 | `drafted`, `draft_failed` | redraft | `drafted` / `draft_failed` |
 | any open status, `spared` | key absent from a successful poll (an invalid finding still counts as present) | `resolved` |
 | `resolved`, `spared` | seen with the same payload hash it had when spared | `spared` (the rejection sticks) |
 | `resolved`, `spared` | seen otherwise | `new` (keeps `firstSeenAt`) |
-| `approved` | anything | stays `approved` |
+| `drafting` before `claimExpiresAt`, any `approving`, `approved` | any poll | unchanged (a poll never rewrites a live claim or an approval) |
 
 ### Runner rules
 
 - `run()` is idempotent per key. Unchanged keys never trigger a draft (R2.2). Concurrent `run()` calls for the same store and detector share one in-flight run, even across runner instances.
-- A run only resolves haunts last seen before its own poll started, so a slow poll (from any runner or process) can't resolve items a newer poll found.
+- A run only resolves haunts that were neither seen nor written after its own poll started, so a slow poll (from any runner or process) can't resolve items a newer poll found or a draft that landed meanwhile. The next run resolves them if they're really gone.
+- Validated payloads must be plain JSON (`findNonJson`), because haunts are persisted as JSON. Detectors convert dates and other rich types to strings or numbers.
 - A `spared` haunt is re-drafted only if `hash(payload)` changes (R4.3).
 - `maxDraftsPerRun` defaults to 20 (R3.4). Findings over the cap stay `new` and are drafted oldest-first on the next run.
-- Every write takes a per-key lock and re-reads the haunt first. Locks are shared by every runner on the same store object, so per-request runners are safe too. A double click cannot run an action twice, and a run skips keys that are mid-approval (R4.2). The lock is in-process; cross-process safety is the store adapter's job.
+- Every write is compare-and-set on `version`, so concurrent writers in any process can't overwrite each other. A write that loses is skipped and counted in `RunReport.conflicts`, or returned as `conflict` from an operation.
+- Approve is claim, act, record. The claim moves the haunt to `approving` with a versioned write before the action runs, so only one process can reach the action (R4.2). If the result can't be saved, the haunt stays `approving` and approve returns `outcome_unknown`. The board then asks the user to check the source and settle it, rather than offering approve again.
+- Actions get an `AbortSignal` and a hard timeout (`actionTimeoutMs`, default 60 s) counted from before the claim write. If the claim's acknowledgement uses up the budget, the action never starts (`not_started`) and the haunt is handed back, so an action can't outlive its claim's deadline. A timeout leaves the haunt `approving`, never `action_failed`, because the action may still have landed.
+- Claims store their own deadline in `claimExpiresAt`, computed by the claiming runner, so runners with different configs agree on when a claim expires.
+- `settle()` is refused until the approval claim's deadline (the claimer's `settleAfterMs`, default 5 min, which must exceed its action timeout). Before then the original attempt, possibly in another process, could still act, so retrying could run the action twice. Action-level idempotency (task 7's marker) closes the remaining gap.
+- Drafting is claimed too: a run moves a haunt to `drafting` with a versioned write before calling the agent, so concurrent runs pay for one model call. Polls leave a live draft claim alone and never resolve it. Once it expires (the claimer's `draftClaimTimeoutMs`, default 2 min), the next poll releases it to `new` with the newest observation, or resolves it if the item is gone.
+- `spare()` doesn't take the per-key lock, so a draft in flight in the same process can still be spared. The versioned write keeps it safe, and the late draft is dropped.
+- An in-process per-key lock, shared by runners on the same store object, avoids wasted agent and action calls inside one process. Versioned writes are what make it correct across processes.
 - A failed poll resolves nothing, since it says nothing about what disappeared.
 - Approve edits can change the proposal and toggle options the draft already has. They cannot add new options.
 - Detector and agent failures are isolated. A failing draft never hides detection results (R3.3).
@@ -132,8 +149,10 @@ export interface Runner<P> {
 
 ## Persistence
 
-- `store-sqlite` holds one `haunts` table: key PK, status, finding JSON, draft JSON, payload hash, result JSON, timestamps.
-- On Vercel, the demo uses Turso (libSQL) through the same adapter interface, because local SQLite files don't persist on serverless (R2.5).
+- `@crypt-kit/store-sqlite` is one adapter on `@libsql/client`. The same SQL runs on a local `file:` database in development and on Turso in production, because local SQLite files don't persist on serverless (R2.4, R2.5). Configure with `CRYPT_DB_URL` and `CRYPT_DB_AUTH_TOKEN`; the default is `file:crypt-kit.db`.
+- One table per app (default `crypt_haunts`, name validated): `key` PK, `detector_id`, `status`, `version`, `first_seen_at` and the full haunt as JSON in `data`, plus an index on `(detector_id, status, first_seen_at, key)`.
+- Inserts use `ON CONFLICT (key) DO NOTHING` and updates use `WHERE key = ? AND version = ?`. Each write is one statement, so the version check and the write are atomic.
+- `assertTrackerStoreContract` in `@crypt-kit/core/testing` is the conformance suite. The memory store and the libSQL store both pass it, and any new adapter must too.
 
 ## Board (packages/board)
 
@@ -192,7 +211,8 @@ The server exposes these tools: `list_haunts`, `get_haunt`, `redraft_haunt`, and
 ## Testing
 
 - Vitest for core. Use the contract helper with recorded fixtures for each detector, mock the agent and assert there are zero model calls inside `poll`.
-- Runner tests cover dedup, resolve, the spared/re-draft hash, the draft cap and the double-approve lock.
+- Runner tests cover dedup, resolve, the spared/re-draft hash, the draft cap, the double-approve lock, and two simulated processes sharing one store (one action per approval, stuck `approving`, settle).
+- Store adapters run `assertTrackerStoreContract`. The libSQL adapter also runs two real connections against one database file.
 - Playwright smoke test per app: run, see a haunt, edit, approve, see the banish state.
 
 ## Security
