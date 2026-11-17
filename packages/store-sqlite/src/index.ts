@@ -74,21 +74,41 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
     const result = await client.execute({
       // NOCASE because SQLite names are case-insensitive and older versions allowed
       // mixed-case tables (e.g. "Exorcist", whose index was "Exorcist_by_detector").
-      sql: `select name, tbl_name, sql from sqlite_master
+      sql: `select name, tbl_name from sqlite_master
             where type = 'index' and (tbl_name = ? collate nocase or name = ? collate nocase)`,
       args: [table, table],
     });
-    return result.rows
-      .filter((row) => {
-        const name = String(row.name);
-        const owner = String(row.tbl_name);
-        const sql = String(row.sql ?? '').toLowerCase().replace(/[\s"`[\]]/g, '');
-        return (
-          name.toLowerCase() === `${owner}_by_detector`.toLowerCase() &&
-          sql === `createindex${name}on${owner}(detector_id,status,first_seen_at,key)`.toLowerCase().replace(/[\s"`[\]]/g, '')
-        );
-      })
-      .map((row) => String(row.name));
+    const legacy: string[] = [];
+    for (const row of result.rows) {
+      const name = String(row.name);
+      const owner = String(row.tbl_name);
+      if (name.toLowerCase() !== `${owner}_by_detector`.toLowerCase()) continue;
+      if (await isLegacyIndex(name, owner)) legacy.push(name);
+    }
+    return legacy;
+  }
+
+  /**
+   * Checks the index's real structure rather than its SQL text: a plain, non-unique,
+   * non-partial index on exactly (detector_id, status, first_seen_at, key), ascending,
+   * default collation. That is what older versions created; anything else is left alone.
+   */
+  async function isLegacyIndex(name: string, owner: string): Promise<boolean> {
+    const [list, columns] = await client.batch(
+      [
+        { sql: `select "unique", origin, partial from pragma_index_list(?) where name = ?`, args: [owner, name] },
+        { sql: `select name, "desc", coll from pragma_index_xinfo(?) where key = 1 order by seqno`, args: [name] },
+      ],
+      'read',
+    );
+    const meta = list?.rows[0];
+    if (!meta || Number(meta.unique) !== 0 || String(meta.origin) !== 'c' || Number(meta.partial) !== 0) return false;
+    const want = ['detector_id', 'status', 'first_seen_at', 'key'];
+    const got = columns?.rows ?? [];
+    return (
+      got.length === want.length &&
+      got.every((col, i) => col.name === want[i] && Number(col.desc) === 0 && String(col.coll).toUpperCase() === 'BINARY')
+    );
   }
 
   let ready: Promise<void> | null = null;

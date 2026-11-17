@@ -153,6 +153,44 @@ describe('createSqliteStore', () => {
       ]);
     });
 
+    it.each([
+      // "key " (trailing space) is a different column, but stripping whitespace made it look like key.
+      ['a quoted column whose name differs only by spaces', `("detector_id", "status", "first_seen_at", "key ")`, `first_seen_at text, "key " text`],
+      ['a descending column', `(detector_id, status, first_seen_at desc, key)`, `first_seen_at text`],
+      ['a different collation', `(detector_id collate nocase, status, first_seen_at, key)`, `first_seen_at text`],
+      ['a partial index', `(detector_id, status, first_seen_at, key) where status = 'new'`, `first_seen_at text`],
+    ])("doesn't drop a same-named user index with %s", async (_label, columns, firstSeenColumn) => {
+      const url = tempDbUrl();
+      const client = createClient({ url });
+      await client.batch(
+        [
+          `create table "reports" (key text primary key, detector_id text, status text, ${firstSeenColumn})`,
+          `create index "reports_by_detector" on "reports" ${columns}`,
+        ],
+        'write',
+      );
+      client.close();
+
+      await expect(open(url, 'reports_by_detector').migrate()).rejects.toThrow();
+      expect(await indexNames(url)).toContain('reports_by_detector');
+    });
+
+    it("doesn't drop a same-named unique index", async () => {
+      const url = tempDbUrl();
+      const client = createClient({ url });
+      await client.batch(
+        [
+          `create table "reports" (key text primary key, detector_id text, status text, first_seen_at text)`,
+          `create unique index "reports_by_detector" on "reports" (detector_id, status, first_seen_at, key)`,
+        ],
+        'write',
+      );
+      client.close();
+
+      await expect(open(url, 'reports_by_detector').migrate()).rejects.toThrow();
+      expect(await indexNames(url)).toContain('reports_by_detector');
+    });
+
     it("doesn't drop an index that only looks like the old one", async () => {
       const url = tempDbUrl();
       const client = createClient({ url });
