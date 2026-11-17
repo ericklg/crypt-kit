@@ -16,7 +16,9 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
 
 - [ ] 3. Storage adapters (Nov 19)
   - [ ] 3.1 `store-sqlite` (local) and libSQL/Turso (deployed) behind `TrackerStore`
-  - _Requirements: R2.4, R2.5_
+  - [ ] 3.2 Close the duplicate-action gap from the PR #2 Copilot review: `approve` runs the action, then saves `approved`. If the save fails or the process dies in between, the haunt stays `drafted` and a retry runs the action again. Persist an `approving` intent atomically before the action (a conditional update, so only one process can claim the haunt). Haunts stuck in `approving` show "check the source before retrying" on the board instead of a plain approve button.
+  - [ ] 3.3 Cross-process locking: the per-key lock in core is in-process only, so the adapters claim haunts with a conditional write
+  - _Requirements: R2.4, R2.5, R4.1, R4.2_
 
 - [ ] 4. Agent (Nov 20)
   - [ ] 4.1 AI SDK `generateObject` agent, provider from env (Bedrock default)
