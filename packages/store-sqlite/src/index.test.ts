@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createClient } from '@libsql/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createRunner, silentLogger, type Action, type ActionResult, type Finding } from '@crypt-kit/core';
@@ -85,6 +86,75 @@ describe('createSqliteStore', () => {
 
     expect(await b.put(sampleHaunt({ key: 'b' }), null)).toBe(true);
     expect(await a.get('b')).toBeNull();
+  });
+
+  describe('upgrading a database created before the index rename', () => {
+    /** Lays out a database the way the previous version of this store did. */
+    async function legacyDatabase(url: string, table: string): Promise<void> {
+      const client = createClient({ url });
+      await client.batch(
+        [
+          `create table "${table}" (key text primary key, detector_id text not null, status text not null,
+            version integer not null, first_seen_at text not null, data text not null)`,
+          `create index "${table}_by_detector" on "${table}" (detector_id, status, first_seen_at, key)`,
+          {
+            sql: `insert into "${table}" (key, detector_id, status, version, first_seen_at, data) values (?, ?, ?, ?, ?, ?)`,
+            args: ['old', 'sample', 'new', 1, '2026-11-01T00:00:00.000Z', JSON.stringify(sampleHaunt({ key: 'old' }))],
+          },
+        ],
+        'write',
+      );
+      client.close();
+    }
+
+    async function indexNames(url: string): Promise<string[]> {
+      const client = createClient({ url });
+      const result = await client.execute(`select name from sqlite_master where type = 'index' and name not like 'sqlite_%' order by name`);
+      client.close();
+      return result.rows.map((row) => String(row.name));
+    }
+
+    it('replaces the old index when the original store reopens', async () => {
+      const url = tempDbUrl();
+      await legacyDatabase(url, 'exorcist');
+
+      const store = open(url, 'exorcist');
+
+      expect((await store.get('old'))?.key).toBe('old');
+      expect(await indexNames(url)).toEqual(['exorcist__by_detector']);
+    });
+
+    it('lets a store named like the old index open first, then the original store', async () => {
+      const url = tempDbUrl();
+      await legacyDatabase(url, 'exorcist');
+
+      const conflicting = open(url, 'exorcist_by_detector');
+      expect(await conflicting.put(sampleHaunt({ key: 'b' }), null)).toBe(true);
+
+      const original = open(url, 'exorcist');
+      expect((await original.get('old'))?.key).toBe('old');
+      expect(await original.get('b')).toBeNull();
+      expect(await indexNames(url)).toEqual(['exorcist__by_detector', 'exorcist_by_detector__by_detector']);
+    });
+
+    it("doesn't drop an index that only looks like the old one", async () => {
+      const url = tempDbUrl();
+      const client = createClient({ url });
+      await client.batch(
+        [
+          `create table "reports" (key text primary key, detector_id text, status text)`,
+          // Same name pattern, different columns: someone else's index.
+          `create index "reports_by_detector" on "reports" (detector_id)`,
+        ],
+        'write',
+      );
+      client.close();
+
+      const store = open(url, 'reports_by_detector');
+
+      await expect(store.migrate()).rejects.toThrow();
+      expect(await indexNames(url)).toContain('reports_by_detector');
+    });
   });
 
   it('rejects table names that could inject SQL', () => {

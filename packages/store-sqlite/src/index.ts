@@ -65,12 +65,38 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
   // `__` can't appear in a table name, so this can never collide with another store's table.
   const index = `"${table}__by_detector"`;
 
+  /**
+   * Indexes created by earlier versions of this store, named `<table>_by_detector`, that
+   * either belong to this table or occupy this table's name. Only indexes that match the
+   * old definition exactly are returned, so a user's own index is never dropped.
+   */
+  async function legacyIndexes(): Promise<string[]> {
+    const result = await client.execute({
+      sql: `select name, tbl_name, sql from sqlite_master where type = 'index' and (tbl_name = ? or name = ?)`,
+      args: [table, table],
+    });
+    return result.rows
+      .filter((row) => {
+        const name = String(row.name);
+        const owner = String(row.tbl_name);
+        const sql = String(row.sql ?? '').toLowerCase().replace(/[\s"`[\]]/g, '');
+        return (
+          name === `${owner}_by_detector` &&
+          sql === `createindex${name}on${owner}(detector_id,status,first_seen_at,key)`.toLowerCase().replace(/[\s"`[\]]/g, '')
+        );
+      })
+      .map((row) => String(row.name));
+  }
+
   let ready: Promise<void> | null = null;
   const migrate = (): Promise<void> => {
-    ready ??= client
-      .batch(
-        [
-          `create table if not exists ${t} (
+    ready ??= legacyIndexes()
+      .then((legacy) =>
+        client.batch(
+          [
+            // Drop old-style indexes first: one named like this table would block create table.
+            ...legacy.map((name) => `drop index if exists "${name.replaceAll('"', '""')}"`),
+            `create table if not exists ${t} (
             key text primary key,
             detector_id text not null,
             status text not null,
@@ -78,9 +104,10 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
             first_seen_at text not null,
             data text not null
           )`,
-          `create index if not exists ${index} on ${t} (detector_id, status, first_seen_at, key)`,
-        ],
-        'write',
+            `create index if not exists ${index} on ${t} (detector_id, status, first_seen_at, key)`,
+          ],
+          'write',
+        ),
       )
       .then(() => undefined)
       .catch((error: unknown) => {

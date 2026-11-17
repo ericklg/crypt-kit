@@ -1176,6 +1176,53 @@ describe('approving: claim, act, record', () => {
     expect(abortedAfterMs).toBeLessThan(130);
   });
 
+  /** A store whose writes to `status` commit at once but are acknowledged `delayMs` later. */
+  function slowAcks(backend: TrackerStore, status: string, delayMs: number): TrackerStore {
+    return {
+      get: (key) => backend.get(key),
+      list: (filter) => backend.list(filter),
+      put: async (haunt, expected) => {
+        const saved = await backend.put(haunt, expected);
+        if (haunt.status === status) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return saved;
+      },
+    };
+  }
+
+  it('does not call the agent when the draft claim is acknowledged after its deadline', async () => {
+    const backend = createMemoryStore();
+    const draft = vi.fn(async () => ({ summary: 's', proposal: 'p', reasoning: 'r', options: {} }));
+    // 100 ms claim minus a 10 ms margin leaves 90 ms; the claim takes 120 ms to acknowledge.
+    const t = setupWith(slowAcks(backend, 'drafting', 120), { draftClaimTimeoutMs: 100, agent: { draft } });
+
+    const report = await t.runner.run();
+
+    expect(draft).not.toHaveBeenCalled();
+    expect(report).toMatchObject({ drafted: 0, draftFailed: 1 });
+    expect(await backend.get('a')).toMatchObject({ status: 'draft_failed', claimExpiresAt: null });
+    expect((await backend.get('a'))?.error).toMatch(/took too long/);
+  });
+
+  it('gives the agent only the time left after a slow draft claim', async () => {
+    const backend = createMemoryStore();
+    let abortedAfterMs = -1;
+    const draft = vi.fn((_f: Finding<Payload>, ctx: { signal: AbortSignal }) => {
+      const started = Date.now();
+      ctx.signal.addEventListener('abort', () => (abortedAfterMs = Date.now() - started));
+      return new Promise<unknown>(() => {});
+    });
+    // 200 ms claim minus a 20 ms margin leaves 180 ms; 60 ms goes to the claim.
+    const t = setupWith(slowAcks(backend, 'drafting', 60), { draftClaimTimeoutMs: 200, agent: { draft } });
+
+    const report = await t.runner.run();
+
+    expect(draft).toHaveBeenCalledTimes(1);
+    expect(abortedAfterMs).toBeGreaterThanOrEqual(0);
+    // Well under the 180 ms it would get if the budget started after the claim.
+    expect(abortedAfterMs).toBeLessThan(160);
+    expect(report).toMatchObject({ draftFailed: 1 });
+  });
+
   it('rejects a settle grace period that is not longer than the action timeout', () => {
     const backend = createMemoryStore();
     expect(() => setupWith(backend, { actionTimeoutMs: 1_000, settleAfterMs: 1_000 })).toThrow(/settleAfterMs/);
