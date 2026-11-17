@@ -26,8 +26,14 @@ export const OPEN_STATUSES: readonly HauntStatus[] = ['new', 'drafted', 'draft_f
  */
 export const NEEDS_CHECK_STATUSES: readonly HauntStatus[] = ['approving'];
 
-/** Statuses that are still "live" at the source, so they resolve when the item disappears. */
-export const RESOLVABLE_STATUSES: readonly HauntStatus[] = [...OPEN_STATUSES, 'drafting', 'spared'];
+/**
+ * Statuses that are still "live" at the source, so they resolve when the item disappears.
+ * A `drafting` haunt also resolves, but only once its claim has expired (see `claimExpiresAt`).
+ */
+export const RESOLVABLE_STATUSES: readonly HauntStatus[] = [...OPEN_STATUSES, 'spared'];
+
+/** Statuses held by a claim. A poll leaves them alone until `claimExpiresAt`. */
+export const CLAIMED_STATUSES: readonly HauntStatus[] = ['drafting', 'approving'];
 
 /** A finding plus everything the kit has done about it. */
 export interface Haunt<P = unknown> {
@@ -52,11 +58,13 @@ export interface Haunt<P = unknown> {
   result: ActionResult | null;
   /** Last draft or action error, shown on the board. */
   error: string | null;
+  /**
+   * For `drafting` and `approving`: when the claim expires, as set by the runner that
+   * took it (its `draftClaimTimeoutMs` or `settleAfterMs`). Stored on the haunt so every
+   * runner honors the claimer's deadline, whatever its own config. Null otherwise.
+   */
+  claimExpiresAt: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
-  /**
-   * Time of the last write. For `drafting` and `approving` this is when the claim was
-   * taken, which is what the draft takeover and settle grace periods measure from.
-   */
   updatedAt: string;
 }

@@ -256,6 +256,7 @@ describe('run: detect and remember', () => {
       draft: { summary: 's', proposal: 'p', reasoning: 'r', options: {} },
       result: null,
       error: null,
+      claimExpiresAt: null,
       firstSeenAt: '2099-01-01T00:00:00.000Z',
       lastSeenAt: '2099-01-01T00:00:00.000Z',
       updatedAt: '2099-01-01T00:00:00.000Z',
@@ -293,6 +294,7 @@ describe('run: detect and remember', () => {
       draft: null,
       result: null,
       error: null,
+      claimExpiresAt: null,
       firstSeenAt: '2026-10-01T00:00:00.000Z',
       lastSeenAt: '2026-10-01T00:00:00.000Z',
       updatedAt: '2026-10-01T00:00:00.000Z',
@@ -535,6 +537,25 @@ describe('approval gate', () => {
 });
 
 describe('spare', () => {
+  it('spares a haunt while its draft is in flight on the same store, and drops the late draft', async () => {
+    const t = setup();
+    t.setFindings([finding('a')]);
+    let finishDraft!: () => void;
+    t.draft.mockImplementationOnce(
+      () => new Promise((resolve) => (finishDraft = () => resolve({ summary: 's', proposal: 'late', reasoning: 'r', options: {} }))),
+    );
+    const running = t.runner.run();
+    await vi.waitFor(() => expect(t.draft).toHaveBeenCalled());
+
+    const spared = await t.runner.spare('a');
+    finishDraft();
+    const report = await running;
+
+    expect(spared).toMatchObject({ ok: true, haunt: { status: 'spared' } });
+    expect(report).toMatchObject({ drafted: 0, conflicts: 1 });
+    expect(await t.store.get('a')).toMatchObject({ status: 'spared', draft: null });
+  });
+
   it('does not redraft a spared haunt while its payload is unchanged', async () => {
     const t = setup();
     t.setFindings([finding('a', 1)]);
@@ -744,6 +765,57 @@ describe('across processes (versioned writes)', () => {
     expect((await p.backend.get('a'))?.status).toBe('drafted');
   });
 
+  it("doesn't let a delayed empty poll resolve a haunt whose draft is still in flight", async () => {
+    let present = true;
+    const p = twoProcesses(() => (present ? [finding('a')] : []));
+    let finishDraft!: () => void;
+    p.a.draft.mockImplementationOnce(
+      () => new Promise((resolve) => (finishDraft = () => resolve({ summary: 's', proposal: 'p', reasoning: 'r', options: {} }))),
+    );
+    const drafting = p.a.runner.run();
+    await vi.waitFor(() => expect(p.a.draft).toHaveBeenCalled());
+
+    present = false;
+    const empty = await p.b.runner.run();
+    finishDraft();
+    await drafting;
+
+    expect(empty).toMatchObject({ resolved: 0, conflicts: 0 });
+    expect(await p.backend.get('a')).toMatchObject({ status: 'drafted', draft: { proposal: 'p' } });
+  });
+
+  it('drafts from the newest payload when taking over an abandoned claim', async () => {
+    let count = 1;
+    const p = twoProcesses(() => [finding('a', count)]);
+    const crashed = p.make({ draftClaimTimeoutMs: 1_000 });
+    crashed.draft.mockImplementationOnce(() => new Promise(() => {}));
+    void crashed.runner.run();
+    await vi.waitFor(async () => expect((await p.backend.get('a'))?.status).toBe('drafting'));
+
+    count = 2;
+    const recovery = p.make({ now: () => new Date(Date.now() + 5_000) });
+    const report = await recovery.runner.run();
+
+    expect(report.drafted).toBe(1);
+    expect(recovery.draft).toHaveBeenCalledWith(expect.objectContaining({ payload: { count: 2 } }));
+    expect(await p.backend.get('a')).toMatchObject({ status: 'drafted', finding: { payload: { count: 2 } }, claimExpiresAt: null });
+  });
+
+  it('resolves an abandoned draft claim once the item is gone', async () => {
+    let present = true;
+    const p = twoProcesses(() => (present ? [finding('a')] : []));
+    const crashed = p.make({ draftClaimTimeoutMs: 1_000 });
+    crashed.draft.mockImplementationOnce(() => new Promise(() => {}));
+    void crashed.runner.run();
+    await vi.waitFor(async () => expect((await p.backend.get('a'))?.status).toBe('drafting'));
+
+    present = false;
+    const report = await p.make({ now: () => new Date(Date.now() + 5_000) }).runner.run();
+
+    expect(report.resolved).toBe(1);
+    expect((await p.backend.get('a'))?.status).toBe('resolved');
+  });
+
   it('bumps the version by one on every write', async () => {
     const p = twoProcesses(() => [finding('a')]);
     await p.a.runner.run(); // insert, claim drafting, save draft
@@ -913,6 +985,22 @@ describe('approving: claim, act, record', () => {
     expect(await a.runner.approve('a')).toMatchObject({ reason: 'outcome_unknown' });
     expect(await b.runner.settle('a', 'not_done')).toMatchObject({ ok: true, haunt: { status: 'drafted' } });
     expect(await b.runner.approve('a')).toMatchObject({ ok: true });
+  });
+
+  it("enforces the claiming runner's settle deadline, not the settling runner's", async () => {
+    const minutes = (n: number) => () => new Date(Date.now() + n * 60_000);
+    const p = twoProcesses(() => [finding('a')]);
+    const claimer = p.make({ actionTimeoutMs: 20, settleAfterMs: 10 * 60_000 });
+    await claimer.runner.run();
+    claimer.actionRun.mockImplementationOnce(() => new Promise<ActionResult>(() => {}));
+    expect(await claimer.runner.approve('a')).toMatchObject({ reason: 'outcome_unknown' });
+
+    // Default config (5 min window), 6 minutes later: still inside the claimer's 10 minutes.
+    const early = await p.make({ now: minutes(6) }).runner.settle('a', 'not_done');
+    expect(early).toMatchObject({ ok: false, reason: 'not_allowed' });
+
+    const late = await p.make({ now: minutes(11) }).runner.settle('a', 'not_done');
+    expect(late).toMatchObject({ ok: true, haunt: { status: 'drafted', claimExpiresAt: null } });
   });
 
   it('rejects a settle grace period that is not longer than the action timeout', () => {

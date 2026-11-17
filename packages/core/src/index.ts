@@ -8,6 +8,7 @@ export { draftSchema, type Agent, type Draft } from './draft.js';
 export { findingEnvelopeSchema, severitySchema, type Finding, type Severity } from './finding.js';
 export { hashPayload, stableStringify } from './hash.js';
 export {
+  CLAIMED_STATUSES,
   HAUNT_STATUSES,
   NEEDS_CHECK_STATUSES,
   OPEN_STATUSES,

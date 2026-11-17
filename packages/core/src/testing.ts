@@ -191,6 +191,7 @@ export function sampleHaunt(overrides: Partial<Haunt> = {}): Haunt {
     draft: null,
     result: null,
     error: null,
+    claimExpiresAt: null,
     firstSeenAt: '2026-11-01T00:00:00.000Z',
     lastSeenAt: '2026-11-01T00:00:00.000Z',
     updatedAt: '2026-11-01T00:00:00.000Z',
