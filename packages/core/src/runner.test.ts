@@ -6,7 +6,7 @@ import type { Agent } from './draft.js';
 import type { Finding } from './finding.js';
 import { silentLogger } from './logger.js';
 import { createRunner, type RunnerOptions } from './runner.js';
-import { createMemoryStore } from './tracker.js';
+import { createMemoryStore, type TrackerStore } from './tracker.js';
 
 const payloadSchema = z.object({ count: z.number() });
 type Payload = z.infer<typeof payloadSchema>;
@@ -245,10 +245,11 @@ describe('run: detect and remember', () => {
 
     const running = t.runner.run();
     // Simulate another process finishing a newer poll that created and drafted "a".
-    await t.store.upsert({
+    await t.store.put({
       key: 'a',
       detectorId: 'test-detector',
       status: 'drafted',
+      version: 1,
       finding: finding('a'),
       payloadHash: 'x',
       sparedPayloadHash: null,
@@ -258,7 +259,7 @@ describe('run: detect and remember', () => {
       firstSeenAt: '2099-01-01T00:00:00.000Z',
       lastSeenAt: '2099-01-01T00:00:00.000Z',
       updatedAt: '2099-01-01T00:00:00.000Z',
-    });
+    }, null);
     release();
     const report = await running;
 
@@ -281,10 +282,11 @@ describe('run: detect and remember', () => {
 
   it('ignores keys owned by another detector in a shared store', async () => {
     const t = setup();
-    await t.store.upsert({
+    await t.store.put({
       key: 'a',
       detectorId: 'someone-else',
       status: 'drafted',
+      version: 1,
       finding: finding('a'),
       payloadHash: 'x',
       sparedPayloadHash: null,
@@ -294,7 +296,7 @@ describe('run: detect and remember', () => {
       firstSeenAt: '2026-10-01T00:00:00.000Z',
       lastSeenAt: '2026-10-01T00:00:00.000Z',
       updatedAt: '2026-10-01T00:00:00.000Z',
-    });
+    }, null);
     t.setFindings([finding('a')]);
 
     const report = await t.runner.run();
@@ -402,6 +404,7 @@ describe('approval gate', () => {
 
     const first = t.runner.approve('a');
     const second = await t.runner.approve('a');
+    await vi.waitFor(() => expect(t.actionRun).toHaveBeenCalled());
     release();
 
     expect(second).toMatchObject({ ok: false, reason: 'in_progress' });
@@ -420,11 +423,12 @@ describe('approval gate', () => {
     );
 
     const approving = t.runner.approve('a');
+    await vi.waitFor(() => expect(t.actionRun).toHaveBeenCalled());
     t.setFindings([]);
     const overlapping = await t.runner.run();
-    // The run must skip the locked key rather than resolve it mid-approval.
+    // Mid-approval the haunt is claimed as approving, and a run must leave it alone.
     expect(overlapping.resolved).toBe(0);
-    expect((await t.store.get('a'))?.status).toBe('drafted');
+    expect((await t.store.get('a'))?.status).toBe('approving');
     release();
     await approving;
 
@@ -450,6 +454,7 @@ describe('approval gate', () => {
 
     const first = t.runner.approve('a');
     const second = await other.approve('a');
+    await vi.waitFor(() => expect(t.actionRun).toHaveBeenCalled());
     release();
     await first;
 
@@ -598,5 +603,244 @@ describe('spare', () => {
     await t.runner.run();
 
     expect((await t.store.get('a'))?.status).toBe('resolved');
+  });
+});
+
+/**
+ * Two "processes": separate runners on separate store objects over one shared backend.
+ * They share data but not in-process locks or in-flight runs, so only versioned writes
+ * keep them consistent.
+ */
+function twoProcesses(findings: () => Finding<Payload>[]) {
+  const backend = createMemoryStore();
+  const view = (): TrackerStore => ({
+    get: (key) => backend.get(key),
+    put: (haunt, expected) => backend.put(haunt, expected),
+    list: (filter) => backend.list(filter),
+  });
+  const make = () => {
+    const store = view();
+    const draft = vi.fn<Agent<Payload>['draft']>(async (f) => ({
+      summary: `About ${f.key}`,
+      proposal: `Do something with ${f.key}`,
+      reasoning: 'Because',
+      options: {},
+    }));
+    const run = vi.fn<Action<Payload>['run']>(async (): Promise<ActionResult> => ({ ok: true, message: 'Done', url: null }));
+    const runner = createRunner<Payload>({
+      detector: { id: 'test-detector', payloadSchema, poll: async () => findings() },
+      agent: { draft },
+      action: { id: 'test-action', run },
+      store,
+      log: silentLogger,
+    });
+    return { runner, store, draft, actionRun: run };
+  };
+  return { backend, a: make(), b: make() };
+}
+
+/** An action mock that waits until released, so tests can act while it is "running". */
+function gate(mock: ReturnType<typeof vi.fn<Action<Payload>['run']>>) {
+  let release!: (result?: ActionResult) => void;
+  mock.mockImplementationOnce(
+    () => new Promise<ActionResult>((resolve) => (release = (r) => resolve(r ?? { ok: true, message: 'Done', url: null }))),
+  );
+  return {
+    async release(result?: ActionResult) {
+      await vi.waitFor(() => expect(mock).toHaveBeenCalled());
+      release(result);
+    },
+  };
+}
+
+describe('across processes (versioned writes)', () => {
+  it('runs the action once when two processes approve the same haunt', async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    await p.a.runner.run();
+    const g = gate(p.a.actionRun);
+
+    const first = p.a.runner.approve('a');
+    const second = await p.b.runner.approve('a');
+    await g.release();
+
+    expect((await first).ok).toBe(true);
+    expect(second).toMatchObject({ ok: false });
+    expect(['conflict', 'not_allowed']).toContain(second.ok ? '' : second.reason);
+    expect(p.a.actionRun.mock.calls.length + p.b.actionRun.mock.calls.length).toBe(1);
+    expect((await p.backend.get('a'))?.status).toBe('approved');
+  });
+
+  it("doesn't let another process's run disturb an approval in progress", async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    await p.a.runner.run();
+    const g = gate(p.a.actionRun);
+
+    const approving = p.a.runner.approve('a');
+    await vi.waitFor(() => expect(p.a.actionRun).toHaveBeenCalled());
+    const report = await p.b.runner.run();
+    await g.release();
+
+    expect(report).toMatchObject({ conflicts: 0, resolved: 0 });
+    expect((await approving).ok).toBe(true);
+    expect((await p.backend.get('a'))?.status).toBe('approved');
+  });
+
+  it('discards a draft when another process spares the haunt while the agent is thinking', async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    let finishDraft!: () => void;
+    p.a.draft.mockImplementationOnce(
+      (f) =>
+        new Promise((resolve) => {
+          finishDraft = () => resolve({ summary: 's', proposal: `late draft for ${f.key}`, reasoning: 'r', options: {} });
+        }),
+    );
+
+    const running = p.a.runner.run();
+    await vi.waitFor(() => expect(p.a.draft).toHaveBeenCalled());
+    expect((await p.b.runner.spare('a')).ok).toBe(true);
+    finishDraft();
+    const report = await running;
+
+    expect(report).toMatchObject({ drafted: 0, conflicts: 1 });
+    expect(await p.backend.get('a')).toMatchObject({ status: 'spared', draft: null });
+  });
+
+  it('bumps the version by one on every write', async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    await p.a.runner.run();
+    expect((await p.backend.get('a'))?.version).toBe(2);
+
+    await p.a.runner.approve('a');
+
+    expect((await p.backend.get('a'))?.version).toBe(4);
+  });
+});
+
+describe('approving: claim, act, record', () => {
+  /** A store whose writes to the given status fail, like a database going away mid-approval. */
+  function failingOn(store: TrackerStore, status: string, mode: 'throw' | 'conflict' = 'throw'): TrackerStore {
+    return {
+      get: (key) => store.get(key),
+      list: (filter) => store.list(filter),
+      put: async (haunt, expected) => {
+        if (haunt.status === status) {
+          if (mode === 'throw') throw new Error('database unavailable');
+          return false;
+        }
+        return store.put(haunt, expected);
+      },
+    };
+  }
+
+  function setupWith(store: TrackerStore) {
+    const run = vi.fn<Action<Payload>['run']>(async (): Promise<ActionResult> => ({ ok: true, message: 'Done', url: null }));
+    const runner = createRunner<Payload>({
+      detector: { id: 'test-detector', payloadSchema, poll: async () => [finding('a')] },
+      agent: { draft: async () => ({ summary: 's', proposal: 'p', reasoning: 'r', options: {} }) },
+      action: { id: 'test-action', run },
+      store,
+      log: silentLogger,
+    });
+    return { runner, actionRun: run };
+  }
+
+  it.each(['throw', 'conflict'] as const)(
+    'leaves the haunt approving and reports outcome_unknown when the result save fails (%s)',
+    async (mode) => {
+      const backend = createMemoryStore();
+      const t = setupWith(failingOn(backend, 'approved', mode));
+      await t.runner.run();
+
+      const result = await t.runner.approve('a');
+
+      expect(result).toMatchObject({ ok: false, reason: 'outcome_unknown', haunt: { status: 'approving' } });
+      expect((await backend.get('a'))?.status).toBe('approving');
+      expect(t.actionRun).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('refuses to approve, spare or redraft a haunt stuck in approving', async () => {
+    const backend = createMemoryStore();
+    const t = setupWith(failingOn(backend, 'approved'));
+    await t.runner.run();
+    await t.runner.approve('a');
+
+    expect(await t.runner.approve('a')).toMatchObject({ ok: false, reason: 'not_allowed' });
+    expect(await t.runner.spare('a')).toMatchObject({ ok: false, reason: 'not_allowed' });
+    expect(await t.runner.redraft('a')).toMatchObject({ ok: false, reason: 'not_allowed' });
+    expect(t.actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('never resolves or refreshes a haunt stuck in approving', async () => {
+    const backend = createMemoryStore();
+    const failing = setupWith(failingOn(backend, 'approved'));
+    await failing.runner.run();
+    await failing.runner.approve('a');
+    const before = await backend.get('a');
+
+    const emptyPoll = createRunner<Payload>({
+      detector: { id: 'test-detector', payloadSchema, poll: async () => [] },
+      agent: { draft: async () => ({}) },
+      action: { id: 'test-action', run: async () => ({ ok: true, message: '', url: null }) },
+      store: backend,
+      log: silentLogger,
+    });
+    await emptyPoll.run();
+
+    expect(await backend.get('a')).toEqual(before);
+  });
+
+  it('settles a stuck haunt as done without running the action again', async () => {
+    const backend = createMemoryStore();
+    const t = setupWith(failingOn(backend, 'approved'));
+    await t.runner.run();
+    await t.runner.approve('a');
+
+    const settled = await setupWith(backend).runner.settle('a', 'done');
+
+    expect(settled).toMatchObject({ ok: true, haunt: { status: 'approved', result: { ok: true } } });
+    expect(t.actionRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles a stuck haunt as not done, after which it can be approved again', async () => {
+    const backend = createMemoryStore();
+    const t = setupWith(failingOn(backend, 'approved'));
+    await t.runner.run();
+    await t.runner.approve('a');
+
+    const healthy = setupWith(backend);
+    expect(await healthy.runner.settle('a', 'not_done')).toMatchObject({ ok: true, haunt: { status: 'drafted' } });
+    expect(await healthy.runner.approve('a')).toMatchObject({ ok: true, haunt: { status: 'approved' } });
+    expect(t.actionRun.mock.calls.length + healthy.actionRun.mock.calls.length).toBe(2);
+  });
+
+  it('refuses to settle a haunt that is not approving', async () => {
+    const t = setupWith(createMemoryStore());
+    await t.runner.run();
+
+    expect(await t.runner.settle('a', 'done')).toMatchObject({ ok: false, reason: 'not_allowed' });
+    expect(await t.runner.settle('missing', 'done')).toMatchObject({ ok: false, reason: 'not_found' });
+  });
+
+  it('records a failed action as action_failed through the same claim', async () => {
+    const backend = createMemoryStore();
+    const t = setupWith(backend);
+    await t.runner.run();
+    t.actionRun.mockResolvedValueOnce({ ok: false, error: 'Rate limited' });
+
+    const result = await t.runner.approve('a');
+
+    expect(result).toMatchObject({ ok: false, reason: 'action_failed' });
+    expect(await backend.get('a')).toMatchObject({ status: 'action_failed', error: 'Rate limited' });
+  });
+
+  it('does not run the action when the claim write itself throws', async () => {
+    const backend = createMemoryStore();
+    const t = setupWith(failingOn(backend, 'approving'));
+    await t.runner.run();
+
+    await expect(t.runner.approve('a')).rejects.toThrow('database unavailable');
+    expect(t.actionRun).not.toHaveBeenCalled();
+    expect((await backend.get('a'))?.status).toBe('drafted');
   });
 });

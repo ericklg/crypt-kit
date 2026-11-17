@@ -38,9 +38,21 @@ export interface RunReport {
   draftFailed: number;
   /** New haunts left for the next run because of the draft cap. */
   deferred: number;
+  /** Writes skipped because another runner or process changed the haunt first. */
+  conflicts: number;
 }
 
-export type FailureReason = 'not_found' | 'not_allowed' | 'in_progress' | 'invalid_draft' | 'action_failed';
+export type FailureReason =
+  | 'not_found'
+  | 'not_allowed'
+  /** Another operation on this haunt is running in this process. */
+  | 'in_progress'
+  /** Another runner or process changed the haunt first. Reload and try again. */
+  | 'conflict'
+  | 'invalid_draft'
+  | 'action_failed'
+  /** The action was attempted but its result couldn't be saved. The haunt is left `approving`. */
+  | 'outcome_unknown';
 
 export type OperationResult<P> =
   | { ok: true; haunt: Haunt<P> }
@@ -52,15 +64,26 @@ export interface DraftEdits {
   options?: Record<string, boolean>;
 }
 
+/** What the user found at the source for a haunt stuck in `approving`. */
+export type SettleOutcome = 'done' | 'not_done';
+
 export interface Runner<P> {
   /** Poll, dedupe, resolve and draft. Concurrent calls share one run. */
   run(): Promise<RunReport>;
-  /** Run the action once for a drafted haunt. The only path to a side effect (R4.1). */
+  /**
+   * Claim the haunt as `approving`, run the action once, then record the result.
+   * The only path to a side effect (R4.1).
+   */
   approve(key: string, edits?: DraftEdits): Promise<OperationResult<P>>;
   /** Reject a haunt. It is re-drafted only if its payload changes (R4.3). */
   spare(key: string): Promise<OperationResult<P>>;
   /** Ask the agent again for a failed or unwanted draft. */
   redraft(key: string): Promise<OperationResult<P>>;
+  /**
+   * Resolve a haunt stuck in `approving` after the user checked the source:
+   * `done` marks it approved, `not_done` returns it to `drafted` so it can be approved again.
+   */
+  settle(key: string, outcome: SettleOutcome): Promise<OperationResult<P>>;
   list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
 }
 
@@ -88,6 +111,8 @@ function locksFor(store: TrackerStore): Set<string> {
 
 const APPROVABLE: readonly HauntStatus[] = ['drafted', 'action_failed'];
 const REDRAFTABLE: readonly HauntStatus[] = ['drafted', 'draft_failed'];
+/** A poll never rewrites these, so it can't race an approval in another process. */
+const FROZEN: readonly HauntStatus[] = ['approving', 'approved'];
 
 export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   const { detector, agent, action, store } = options;
@@ -101,9 +126,9 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     throw new RangeError('maxDraftsPerRun must be a non-negative integer');
   }
 
-  // Keys with an operation in flight, shared by every runner on the same store, so
-  // per-request runners (e.g. in route handlers) can't approve one haunt twice.
-  // Cross-process locking is the store's job (see store adapters).
+  // Keys with an operation in flight, shared by every runner on the same store object.
+  // This only saves wasted work inside one process; versioned writes are what keep
+  // separate processes safe.
   const busy = locksFor(store);
   const inFlightRuns = runsFor(store);
 
@@ -124,9 +149,15 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     }
   }
 
-  async function save(haunt: Haunt<P>): Promise<Haunt<P>> {
-    await store.upsert(haunt as Haunt);
-    return haunt;
+  /**
+   * Writes `next` as the version after `prev` (or as a new haunt when `prev` is null).
+   * Returns the saved haunt, or null if another writer got there first.
+   */
+  async function write(prev: Haunt<P> | null, next: Haunt<P>): Promise<Haunt<P> | null> {
+    const haunt: Haunt<P> = { ...next, version: (prev?.version ?? 0) + 1 };
+    const saved = await store.put(haunt as Haunt, prev ? prev.version : null);
+    if (!saved) log.info('write conflict, skipped', { detector: detector.id, key: haunt.key });
+    return saved ? haunt : null;
   }
 
   function freshHaunt(finding: Finding<P>, payloadHash: string, at: string, firstSeenAt = at): Haunt<P> {
@@ -134,6 +165,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       key: finding.key,
       detectorId: detector.id,
       status: 'new',
+      version: 0,
       finding,
       payloadHash,
       sparedPayloadHash: null,
@@ -146,17 +178,18 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     };
   }
 
-  /** Calls the agent for one haunt and stores the outcome. Caller must hold the lock. */
-  async function draftLocked(haunt: Haunt<P>): Promise<Haunt<P>> {
-    const at = now().toISOString();
+  /** Calls the agent for one haunt and stores the outcome. Null means a newer write won. */
+  async function draftLocked(haunt: Haunt<P>): Promise<Haunt<P> | null> {
+    let next: Haunt<P>;
     try {
       const parsed = draftSchema.safeParse(await agent.draft(haunt.finding));
       if (!parsed.success) throw new Error('Agent returned a draft that failed validation');
-      return await save({ ...haunt, status: 'drafted', draft: parsed.data, error: null, updatedAt: at });
+      next = { ...haunt, status: 'drafted', draft: parsed.data, error: null, updatedAt: now().toISOString() };
     } catch (error) {
       log.warn('draft failed', { detector: detector.id, key: haunt.key, error: errorMessage(error) });
-      return await save({ ...haunt, status: 'draft_failed', draft: null, error: errorMessage(error), updatedAt: at });
+      next = { ...haunt, status: 'draft_failed', draft: null, error: errorMessage(error), updatedAt: now().toISOString() };
     }
+    return write(haunt, next);
   }
 
   /**
@@ -213,6 +246,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       drafted: 0,
       draftFailed: 0,
       deferred: 0,
+      conflicts: 0,
     };
 
     // Anything seen at or after this instant was written by a newer poll than ours.
@@ -241,8 +275,8 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         const payloadHash = hashPayload(finding.payload);
         const existing = await store.get(finding.key);
         if (!existing) {
-          await save(freshHaunt(finding, payloadHash, at));
-          report.created++;
+          if (await write(null, freshHaunt(finding, payloadHash, at))) report.created++;
+          else report.conflicts++;
           return;
         }
         if (existing.detectorId !== detector.id) {
@@ -250,19 +284,23 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           return;
         }
         const current = existing as Haunt<P>;
-        const refreshed = { ...current, finding, payloadHash, lastSeenAt: at };
+        if (FROZEN.includes(current.status)) return;
 
+        const refreshed: Haunt<P> = { ...current, finding, payloadHash, lastSeenAt: at };
+        let next = refreshed;
+        let reopened = false;
         if (current.status === 'spared' || current.status === 'resolved') {
           // A rejection sticks until the payload changes, even across a disappear/return (R4.3).
           if (current.sparedPayloadHash !== null && current.sparedPayloadHash === payloadHash) {
-            await save(current.status === 'resolved' ? { ...refreshed, status: 'spared', updatedAt: at } : refreshed);
-            return;
+            next = current.status === 'resolved' ? { ...refreshed, status: 'spared', updatedAt: at } : refreshed;
+          } else {
+            next = freshHaunt(finding, payloadHash, at, current.firstSeenAt);
+            reopened = true;
           }
-          await save(freshHaunt(finding, payloadHash, at, current.firstSeenAt));
-          report.reopened++;
-          return;
         }
-        await save(refreshed);
+        const saved = await write(current, next);
+        if (!saved) report.conflicts++;
+        else if (reopened) report.reopened++;
       });
     }
 
@@ -275,8 +313,8 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         // A newer poll (another runner or process) saw this item after ours started,
         // so our snapshot is too old to say it disappeared.
         if (current.lastSeenAt >= pollStartedAt) return;
-        await save({ ...current, status: 'resolved', updatedAt: now().toISOString() });
-        report.resolved++;
+        if (await write(current, { ...current, status: 'resolved', updatedAt: now().toISOString() })) report.resolved++;
+        else report.conflicts++;
       });
     }
 
@@ -288,7 +326,8 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         const current = await load(haunt.key);
         if (!current || current.status !== 'new') return;
         const drafted = await draftLocked(current);
-        if (drafted.status === 'drafted') report.drafted++;
+        if (!drafted) report.conflicts++;
+        else if (drafted.status === 'drafted') report.drafted++;
         else report.draftFailed++;
       });
     }
@@ -300,6 +339,8 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   function fail(reason: FailureReason, message: string, haunt: Haunt<P> | null = null): OperationResult<P> {
     return { ok: false, reason, message, haunt };
   }
+
+  const CONFLICT_MESSAGE = 'This haunt changed somewhere else. Reload and try again.';
 
   /** Locks the key, loads the haunt and checks its status before running `fn`. */
   async function operate(
@@ -354,38 +395,98 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         const parsed = draftSchema.safeParse(applyEdits(haunt.draft, edits));
         if (!parsed.success) return fail('invalid_draft', 'Edited draft failed validation', haunt);
 
-        const result = await runAction(haunt, parsed.data);
+        // 1. Claim. Only one writer can move this version to `approving`, so only one
+        //    process ever reaches the action. If we die after this, the haunt stays
+        //    `approving` and the user settles it instead of re-approving it.
+        const claimed = await write(haunt, {
+          ...haunt,
+          status: 'approving',
+          draft: parsed.data,
+          error: null,
+          updatedAt: now().toISOString(),
+        });
+        if (!claimed) return fail('conflict', CONFLICT_MESSAGE, haunt);
+
+        // 2. Act.
+        const result = await runAction(claimed, parsed.data);
+
+        // 3. Record. Nothing else writes an `approving` haunt except settle(), so a
+        //    failure here means the store is unavailable or a user settled it already.
         const at = now().toISOString();
+        const next: Haunt<P> = result.ok
+          ? { ...claimed, status: 'approved', result, error: null, updatedAt: at }
+          : { ...claimed, status: 'action_failed', result, error: result.error, updatedAt: at };
+        let saved: Haunt<P> | null = null;
+        let saveError: string | null = null;
+        try {
+          saved = await write(claimed, next);
+        } catch (error) {
+          saveError = errorMessage(error);
+        }
+        if (!saved) {
+          log.error('action outcome not saved; haunt left approving', {
+            detector: detector.id,
+            key,
+            action: action.id,
+            actionOk: result.ok,
+            error: saveError ?? 'write conflict',
+          });
+          return fail(
+            'outcome_unknown',
+            result.ok
+              ? 'The action ran, but its result could not be saved. Check the source, then settle this haunt.'
+              : 'The action failed, and that result could not be saved. Check the source, then settle this haunt.',
+            claimed,
+          );
+        }
+
         if (result.ok) {
-          const saved = await save({ ...haunt, status: 'approved', draft: parsed.data, result, error: null, updatedAt: at });
           log.info('action ran', { detector: detector.id, key, action: action.id });
           return { ok: true, haunt: saved };
         }
-        const saved = await save({ ...haunt, status: 'action_failed', draft: parsed.data, result, error: result.error, updatedAt: at });
         log.warn('action failed', { detector: detector.id, key, action: action.id, error: result.error });
         return fail('action_failed', result.error, saved);
       });
     },
 
     spare(key) {
-      return operate(key, OPEN_STATUSES, async (haunt) => ({
-        ok: true,
-        haunt: await save({
+      return operate(key, OPEN_STATUSES, async (haunt) => {
+        const saved = await write(haunt, {
           ...haunt,
           status: 'spared',
           sparedPayloadHash: haunt.payloadHash,
           error: null,
           updatedAt: now().toISOString(),
-        }),
-      }));
+        });
+        return saved ? { ok: true, haunt: saved } : fail('conflict', CONFLICT_MESSAGE, haunt);
+      });
     },
 
     redraft(key) {
       return operate(key, REDRAFTABLE, async (haunt) => {
         const drafted = await draftLocked(haunt);
+        if (!drafted) return fail('conflict', CONFLICT_MESSAGE, haunt);
         return drafted.status === 'drafted'
           ? { ok: true, haunt: drafted }
           : fail('invalid_draft', drafted.error ?? 'Draft failed', drafted);
+      });
+    },
+
+    settle(key, outcome) {
+      return operate(key, ['approving'], async (haunt) => {
+        const at = now().toISOString();
+        const next: Haunt<P> =
+          outcome === 'done'
+            ? {
+                ...haunt,
+                status: 'approved',
+                result: { ok: true, message: 'Confirmed at the source by the user', url: null },
+                error: null,
+                updatedAt: at,
+              }
+            : { ...haunt, status: 'drafted', result: null, error: null, updatedAt: at };
+        const saved = await write(haunt, next);
+        return saved ? { ok: true, haunt: saved } : fail('conflict', CONFLICT_MESSAGE, haunt);
       });
     },
 

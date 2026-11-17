@@ -1,6 +1,8 @@
 import type { Detector, PollContext } from './detector.js';
 import { findingEnvelopeSchema, type Finding } from './finding.js';
+import type { Haunt } from './haunt.js';
 import { silentLogger } from './logger.js';
+import type { TrackerStore } from './tracker.js';
 
 /** A recorded response. `match` is an exact URL or a RegExp tested against the full URL. */
 export interface FixtureRoute {
@@ -165,4 +167,114 @@ export async function assertDetectorContract<P>(
 
   if (problems.length) throw new DetectorContractError(detector.id, problems);
   return { findings, calls };
+}
+
+/** A minimal valid haunt for store tests. Override any field. */
+export function sampleHaunt(overrides: Partial<Haunt> = {}): Haunt {
+  const key = overrides.key ?? 'sample#1';
+  return {
+    key,
+    detectorId: 'sample',
+    status: 'new',
+    version: 1,
+    finding: {
+      key,
+      kind: 'sample',
+      severity: 'low',
+      title: `Sample ${key}`,
+      url: null,
+      payload: { n: 1, nested: { ok: true } },
+      observedAt: '2026-11-01T00:00:00.000Z',
+    },
+    payloadHash: 'hash',
+    sparedPayloadHash: null,
+    draft: null,
+    result: null,
+    error: null,
+    firstSeenAt: '2026-11-01T00:00:00.000Z',
+    lastSeenAt: '2026-11-01T00:00:00.000Z',
+    updatedAt: '2026-11-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+export class TrackerStoreContractError extends Error {
+  constructor(readonly problems: string[]) {
+    super(`TrackerStore broke its contract:\n- ${problems.join('\n- ')}`);
+    this.name = 'TrackerStoreContractError';
+  }
+}
+
+/**
+ * Runs every TrackerStore guarantee the runner relies on against fresh, empty stores
+ * from `makeStore`: round-trips, insert-if-absent, compare-and-set on version, version
+ * checks, filtering, ordering, copy-on-read and one winner under concurrent writes.
+ * Throws TrackerStoreContractError listing every problem found.
+ */
+export async function assertTrackerStoreContract(makeStore: () => Promise<TrackerStore>): Promise<void> {
+  const problems: string[] = [];
+  const expect = (ok: boolean, message: string) => {
+    if (!ok) problems.push(message);
+  };
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+  {
+    const store = await makeStore();
+    expect((await store.get('missing')) === null, 'get() of a missing key must return null');
+
+    const haunt = sampleHaunt({ draft: { summary: 's', proposal: 'p', reasoning: 'r', options: { close: true } } });
+    expect((await store.put(haunt, null)) === true, 'put(haunt, null) must insert a new key');
+    expect(same(await store.get(haunt.key), haunt), 'get() must return exactly what was stored');
+    expect((await store.put(sampleHaunt({ error: 'other writer' }), null)) === false, 'put(haunt, null) must not overwrite an existing key');
+    expect((await store.get(haunt.key))?.error === null, 'a rejected insert must leave the stored haunt unchanged');
+
+    const v2 = { ...haunt, version: 2, status: 'drafted' as const };
+    expect((await store.put(v2, 1)) === true, 'put(haunt, 1) must update a haunt stored at version 1');
+    expect((await store.put({ ...v2, status: 'spared' }, 1)) === false, 'put() with a stale expected version must fail');
+    expect((await store.get(haunt.key))?.status === 'drafted', 'a failed put() must leave the stored haunt unchanged');
+    expect((await store.put(sampleHaunt({ key: 'absent', version: 2 }), 1)) === false, 'put() expecting a version must fail when the key is absent');
+
+    let threw = false;
+    try {
+      await store.put({ ...v2, version: 5 }, 2);
+    } catch {
+      threw = true;
+    }
+    expect(threw, 'put() must throw when haunt.version is not expectedVersion + 1');
+
+    const copy = await store.get(haunt.key);
+    if (copy) copy.finding.title = 'mutated';
+    expect((await store.get(haunt.key))?.finding.title === haunt.finding.title, 'get() must return a copy, not shared state');
+  }
+
+  {
+    const store = await makeStore();
+    const rows = [
+      sampleHaunt({ key: 'b', detectorId: 'one', status: 'new', firstSeenAt: '2026-11-02T00:00:00.000Z' }),
+      sampleHaunt({ key: 'a', detectorId: 'one', status: 'drafted', firstSeenAt: '2026-11-02T00:00:00.000Z' }),
+      sampleHaunt({ key: 'c', detectorId: 'one', status: 'spared', firstSeenAt: '2026-11-01T00:00:00.000Z' }),
+      sampleHaunt({ key: 'd', detectorId: 'two', status: 'new', firstSeenAt: '2026-10-01T00:00:00.000Z' }),
+    ];
+    for (const row of rows) await store.put(row, null);
+
+    const keys = async (filter?: Parameters<TrackerStore['list']>[0]) => (await store.list(filter)).map((h) => h.key).join(',');
+    expect((await keys()) === 'd,c,a,b', `list() must order by firstSeenAt then key (got ${await keys()})`);
+    expect((await keys({ detectorId: 'one' })) === 'c,a,b', 'list() must filter by detectorId');
+    expect((await keys({ detectorId: 'one', status: ['new', 'spared'] })) === 'c,b', 'list() must filter by status');
+    expect((await keys({ status: [] })) === '', 'list() with an empty status list must return nothing');
+  }
+
+  {
+    const store = await makeStore();
+    await store.put(sampleHaunt(), null);
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => store.put(sampleHaunt({ version: 2, error: `writer ${i}` }), 1)),
+    );
+    expect(attempts.filter(Boolean).length === 1, `exactly one concurrent put() on the same version may win (got ${attempts.filter(Boolean).length})`);
+
+    const inserts = await Promise.all(Array.from({ length: 8 }, () => store.put(sampleHaunt({ key: 'race' }), null)));
+    expect(inserts.filter(Boolean).length === 1, 'exactly one concurrent insert of the same key may win');
+  }
+
+  if (problems.length) throw new TrackerStoreContractError(problems);
 }

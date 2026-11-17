@@ -1,0 +1,23 @@
+{
+  "name": "@crypt-kit/store-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@crypt-kit/core": "workspace:*",
+    "@libsql/client": "^0.18.0"
+  },
+  "devDependencies": {
+    "zod": "^4.6.7"
+  }
+}
