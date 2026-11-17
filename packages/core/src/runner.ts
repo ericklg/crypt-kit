@@ -172,8 +172,10 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         const error = new Error(`The agent didn't answer within ${Math.round(budgetMs / 1000)}s`);
-        controller.abort(error);
+        // Reject first: abort listeners run synchronously, and an agent that resolves on
+        // abort (e.g. with a fallback) must not win the race after the deadline.
         reject(error);
+        controller.abort(error);
       }, budgetMs);
     });
     try {
@@ -495,8 +497,10 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<Attempt>((resolve) => {
       timer = setTimeout(() => {
-        controller.abort(new Error('Action timed out'));
+        // Settle first, for the same reason as callAgent: an action that resolves on abort
+        // must not be recorded as a clean result after the deadline.
         resolve({ timedOut: true });
+        controller.abort(new Error('Action timed out'));
       }, budgetMs);
     });
     const attempt = (async (): Promise<Attempt> => {

@@ -1223,6 +1223,40 @@ describe('approving: claim, act, record', () => {
     expect(report).toMatchObject({ draftFailed: 1 });
   });
 
+  it('records draft_failed when an agent answers from its abort handler after the deadline', async () => {
+    const backend = createMemoryStore();
+    const draft = vi.fn(
+      (_f: Finding<Payload>, ctx: { signal: AbortSignal }) =>
+        new Promise<unknown>((resolve) => {
+          // A "fallback" draft returned the instant the call is aborted.
+          ctx.signal.addEventListener('abort', () => resolve({ summary: 's', proposal: 'fallback', reasoning: 'r', options: {} }));
+        }),
+    );
+    const t = setupWith(backend, { draftClaimTimeoutMs: 100, agent: { draft } });
+
+    const report = await t.runner.run();
+
+    expect(report).toMatchObject({ drafted: 0, draftFailed: 1 });
+    expect(await backend.get('a')).toMatchObject({ status: 'draft_failed', draft: null });
+  });
+
+  it('leaves the haunt approving when an action answers from its abort handler after the deadline', async () => {
+    const backend = createMemoryStore();
+    const t = setupWith(backend, { actionTimeoutMs: 20 });
+    await t.runner.run();
+    t.actionRun.mockImplementationOnce(
+      (_f, _d, ctx) =>
+        new Promise<ActionResult>((resolve) => {
+          ctx.signal.addEventListener('abort', () => resolve({ ok: true, message: 'claims success', url: null }));
+        }),
+    );
+
+    const result = await t.runner.approve('a');
+
+    expect(result).toMatchObject({ ok: false, reason: 'outcome_unknown' });
+    expect((await backend.get('a'))?.status).toBe('approving');
+  });
+
   it('rejects a settle grace period that is not longer than the action timeout', () => {
     const backend = createMemoryStore();
     expect(() => setupWith(backend, { actionTimeoutMs: 1_000, settleAfterMs: 1_000 })).toThrow(/settleAfterMs/);
