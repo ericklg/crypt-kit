@@ -72,7 +72,10 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
    */
   async function legacyIndexes(): Promise<string[]> {
     const result = await client.execute({
-      sql: `select name, tbl_name, sql from sqlite_master where type = 'index' and (tbl_name = ? or name = ?)`,
+      // NOCASE because SQLite names are case-insensitive and older versions allowed
+      // mixed-case tables (e.g. "Exorcist", whose index was "Exorcist_by_detector").
+      sql: `select name, tbl_name, sql from sqlite_master
+            where type = 'index' and (tbl_name = ? collate nocase or name = ? collate nocase)`,
       args: [table, table],
     });
     return result.rows
@@ -81,7 +84,7 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
         const owner = String(row.tbl_name);
         const sql = String(row.sql ?? '').toLowerCase().replace(/[\s"`[\]]/g, '');
         return (
-          name === `${owner}_by_detector` &&
+          name.toLowerCase() === `${owner}_by_detector`.toLowerCase() &&
           sql === `createindex${name}on${owner}(detector_id,status,first_seen_at,key)`.toLowerCase().replace(/[\s"`[\]]/g, '')
         );
       })

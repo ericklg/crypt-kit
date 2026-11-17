@@ -137,6 +137,22 @@ describe('createSqliteStore', () => {
       expect(await indexNames(url)).toEqual(['exorcist__by_detector', 'exorcist_by_detector__by_detector']);
     });
 
+    it('migrates a mixed-case legacy table, opening the store named like its index first', async () => {
+      const url = tempDbUrl();
+      await legacyDatabase(url, 'Exorcist');
+
+      const conflicting = open(url, 'exorcist_by_detector');
+      expect(await conflicting.put(sampleHaunt({ key: 'b' }), null)).toBe(true);
+
+      // SQLite names are case-insensitive, so "exorcist" opens the old "Exorcist" table.
+      const original = open(url, 'exorcist');
+      expect((await original.get('old'))?.key).toBe('old');
+      expect((await indexNames(url)).map((n) => n.toLowerCase())).toEqual([
+        'exorcist__by_detector',
+        'exorcist_by_detector__by_detector',
+      ]);
+    });
+
     it("doesn't drop an index that only looks like the old one", async () => {
       const url = tempDbUrl();
       const client = createClient({ url });
