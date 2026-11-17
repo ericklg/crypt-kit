@@ -69,7 +69,8 @@ export interface Draft {
 }
 
 export interface Agent<P> {
-  draft(finding: Finding<P>): Promise<Draft>;
+  // Returns unknown on purpose: the runner validates it with draftSchema.
+  draft(finding: Finding<P>): Promise<unknown>;
 }
 
 export interface Action<P> {
@@ -81,20 +82,45 @@ export type HauntStatus =
   | 'new' | 'drafted' | 'draft_failed'
   | 'approved' | 'action_failed' | 'spared' | 'resolved';
 
+// Kept to three methods so adapters stay small; the runner owns status logic.
 export interface TrackerStore {
   get(key: string): Promise<Haunt | null>;
   upsert(h: Haunt): Promise<void>;
-  listOpen(): Promise<Haunt[]>;
-  markResolved(keys: string[]): Promise<void>;
+  list(filter?: { detectorId?: string; status?: readonly HauntStatus[] }): Promise<Haunt[]>;
+}
+
+export interface Runner<P> {
+  run(): Promise<RunReport>;
+  approve(key: string, edits?: DraftEdits): Promise<OperationResult<P>>;
+  spare(key: string): Promise<OperationResult<P>>;
+  redraft(key: string): Promise<OperationResult<P>>;
+  list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
 }
 ```
 
+### Status transitions
+
+| From | Event | To |
+|---|---|---|
+| (none) | seen by a poll | `new` |
+| `new` | agent returns a valid draft / fails | `drafted` / `draft_failed` |
+| `drafted`, `action_failed` | approve → action ok / fails | `approved` / `action_failed` |
+| `new`, `drafted`, `draft_failed`, `action_failed` | spare | `spared` |
+| `drafted`, `draft_failed` | redraft | `drafted` / `draft_failed` |
+| any open status, `spared` | key absent from a successful poll (an invalid finding still counts as present) | `resolved` |
+| `resolved`, `spared` | seen with the same payload hash it had when spared | `spared` (the rejection sticks) |
+| `resolved`, `spared` | seen otherwise | `new` (keeps `firstSeenAt`) |
+| `approved` | anything | stays `approved` |
+
 ### Runner rules
 
-- `run()` is idempotent per key. Unchanged keys never trigger a draft (R2.2).
+- `run()` is idempotent per key. Unchanged keys never trigger a draft (R2.2). Concurrent `run()` calls for the same store and detector share one in-flight run, even across runner instances.
+- A run only resolves haunts last seen before its own poll started, so a slow poll (from any runner or process) can't resolve items a newer poll found.
 - A `spared` haunt is re-drafted only if `hash(payload)` changes (R4.3).
-- `maxDrafts` defaults to 20 (R3.4). Findings over the cap stay `new` and are drafted on the next run.
-- `approve()` takes a per-haunt lock, so a double click cannot run an action twice (R4.2).
+- `maxDraftsPerRun` defaults to 20 (R3.4). Findings over the cap stay `new` and are drafted oldest-first on the next run.
+- Every write takes a per-key lock and re-reads the haunt first. Locks are shared by every runner on the same store object, so per-request runners are safe too. A double click cannot run an action twice, and a run skips keys that are mid-approval (R4.2). The lock is in-process; cross-process safety is the store adapter's job.
+- A failed poll resolves nothing, since it says nothing about what disappeared.
+- Approve edits can change the proposal and toggle options the draft already has. They cannot add new options.
 - Detector and agent failures are isolated. A failing draft never hides detection results (R3.3).
 
 ## Agent

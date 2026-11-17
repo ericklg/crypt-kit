@@ -1,0 +1,43 @@
+import type { ActionResult } from './action.js';
+import type { Draft } from './draft.js';
+import type { Finding } from './finding.js';
+
+export const HAUNT_STATUSES = [
+  'new',
+  'drafted',
+  'draft_failed',
+  'approved',
+  'action_failed',
+  'spared',
+  'resolved',
+] as const;
+
+export type HauntStatus = (typeof HAUNT_STATUSES)[number];
+
+/** Statuses the board shows as open and waiting on the user. */
+export const OPEN_STATUSES: readonly HauntStatus[] = ['new', 'drafted', 'draft_failed', 'action_failed'];
+
+/** Statuses that are still "live" at the source, so they resolve when the item disappears. */
+export const RESOLVABLE_STATUSES: readonly HauntStatus[] = [...OPEN_STATUSES, 'spared'];
+
+/** A finding plus everything the kit has done about it. */
+export interface Haunt<P = unknown> {
+  key: string;
+  detectorId: string;
+  status: HauntStatus;
+  finding: Finding<P>;
+  /** Hash of the latest `finding.payload`. */
+  payloadHash: string;
+  /**
+   * Payload hash at the moment the user spared this haunt, or null if never spared.
+   * Survives resolution, so an unchanged item that disappears and returns stays spared (R4.3).
+   */
+  sparedPayloadHash: string | null;
+  draft: Draft | null;
+  result: ActionResult | null;
+  /** Last draft or action error, shown on the board. */
+  error: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  updatedAt: string;
+}
