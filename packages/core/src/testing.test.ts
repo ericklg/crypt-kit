@@ -150,6 +150,19 @@ describe('assertDetectorContract', () => {
     expect(globalThis.fetch).toBe(original);
   });
 
+  it('fails a detector whose schema turns the payload into non-JSON values', async () => {
+    const dated: Detector<{ at: Date }> = {
+      id: 'dated',
+      payloadSchema: z.object({ at: z.coerce.date() }),
+      async poll(ctx) {
+        const [f] = await goodDetector.poll(ctx);
+        return [{ ...f!, payload: { at: '2026-11-01T00:00:00.000Z' } as unknown as { at: Date } }];
+      },
+    };
+
+    await expect(assertDetectorContract(dated, { routes })).rejects.toThrow(/not plain JSON: payload\.at is a Date/);
+  });
+
   it('fails when fixtures produce no findings unless that is allowed', async () => {
     const empty = [{ match: 'https://api.example.com/items', body: [] }];
 

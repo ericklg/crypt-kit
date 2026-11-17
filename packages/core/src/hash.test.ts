@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashPayload, stableStringify } from './hash.js';
+import { findNonJson, hashPayload, stableStringify } from './hash.js';
 
 describe('hashPayload', () => {
   it('ignores object key order, including nested objects', () => {
@@ -16,6 +16,26 @@ describe('hashPayload', () => {
 
   it('handles undefined without throwing', () => {
     expect(hashPayload(undefined)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('findNonJson', () => {
+  it('accepts plain JSON values, including null-prototype objects', () => {
+    expect(findNonJson({ a: [1, 'two', true, null, { b: -0.5 }] })).toBeNull();
+    expect(findNonJson(Object.assign(Object.create(null), { a: 1 }))).toBeNull();
+  });
+
+  it.each([
+    [{ when: new Date() }, /payload\.when is a Date/],
+    [{ tags: new Set(['x']) }, /payload\.tags is a Set/],
+    [{ n: Number.NaN }, /payload\.n is NaN/],
+    [{ n: Infinity }, /payload\.n is Infinity/],
+    [{ missing: undefined }, /payload\.missing is undefined/],
+    [{ big: 1n }, /payload\.big is bigint/],
+    [{ list: [1, , 3] }, /payload\.list\[1\] is a hole/],
+    [{ deep: { fn: () => 1 } }, /payload\.deep\.fn is function/],
+  ])('reports %o', (value, message) => {
+    expect(findNonJson(value)).toMatch(message);
   });
 });
 

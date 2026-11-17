@@ -124,12 +124,13 @@ export interface Runner<P> {
 ### Runner rules
 
 - `run()` is idempotent per key. Unchanged keys never trigger a draft (R2.2). Concurrent `run()` calls for the same store and detector share one in-flight run, even across runner instances.
-- A run only resolves haunts last seen before its own poll started, so a slow poll (from any runner or process) can't resolve items a newer poll found.
+- A run only resolves haunts that were neither seen nor written after its own poll started, so a slow poll (from any runner or process) can't resolve items a newer poll found or a draft that landed meanwhile. The next run resolves them if they're really gone.
+- Validated payloads must be plain JSON (`findNonJson`), because haunts are persisted as JSON. Detectors convert dates and other rich types to strings or numbers.
 - A `spared` haunt is re-drafted only if `hash(payload)` changes (R4.3).
 - `maxDraftsPerRun` defaults to 20 (R3.4). Findings over the cap stay `new` and are drafted oldest-first on the next run.
 - Every write is compare-and-set on `version`, so concurrent writers in any process can't overwrite each other. A write that loses is skipped and counted in `RunReport.conflicts`, or returned as `conflict` from an operation.
 - Approve is claim, act, record. The claim moves the haunt to `approving` with a versioned write before the action runs, so only one process can reach the action (R4.2). If the result can't be saved, the haunt stays `approving` and approve returns `outcome_unknown`. The board then asks the user to check the source and settle it, rather than offering approve again.
-- Actions get an `AbortSignal` and a hard timeout (`actionTimeoutMs`, default 60 s). A timeout leaves the haunt `approving`, never `action_failed`, because the action may still have landed.
+- Actions get an `AbortSignal` and a hard timeout (`actionTimeoutMs`, default 60 s) counted from before the claim write. If the claim's acknowledgement uses up the budget, the action never starts (`not_started`) and the haunt is handed back, so an action can't outlive its claim's deadline. A timeout leaves the haunt `approving`, never `action_failed`, because the action may still have landed.
 - Claims store their own deadline in `claimExpiresAt`, computed by the claiming runner, so runners with different configs agree on when a claim expires.
 - `settle()` is refused until the approval claim's deadline (the claimer's `settleAfterMs`, default 5 min, which must exceed its action timeout). Before then the original attempt, possibly in another process, could still act, so retrying could run the action twice. Action-level idempotency (task 7's marker) closes the remaining gap.
 - Drafting is claimed too: a run moves a haunt to `drafting` with a versioned write before calling the agent, so concurrent runs pay for one model call. Polls leave a live draft claim alone and never resolve it. Once it expires (the claimer's `draftClaimTimeoutMs`, default 2 min), the next poll releases it to `new` with the newest observation, or resolves it if the item is gone.

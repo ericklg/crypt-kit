@@ -170,6 +170,30 @@ describe('run: detect and remember', () => {
     expect(t.draft).toHaveBeenCalledTimes(1);
   });
 
+  it('drops findings whose validated payload is not plain JSON', async () => {
+    const dated = z.object({ dueAt: z.coerce.date() });
+    const warn = vi.fn();
+    const store = createMemoryStore();
+    const draft = vi.fn(async () => ({ summary: 's', proposal: 'p', reasoning: 'r', options: {} }));
+    const runner = createRunner<z.infer<typeof dated>>({
+      detector: {
+        id: 'dated',
+        payloadSchema: dated,
+        poll: async () => [{ ...finding('a'), payload: { dueAt: '2026-12-01T00:00:00.000Z' } } as never],
+      },
+      agent: { draft },
+      action: { id: 'noop', run: async () => ({ ok: true, message: '', url: null }) },
+      store,
+      log: { ...silentLogger, warn },
+    });
+
+    const report = await runner.run();
+
+    expect(report).toMatchObject({ found: 0, invalid: 1, created: 0 });
+    expect(draft).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('dropped finding with a non-JSON payload', expect.objectContaining({ issue: expect.stringMatching(/payload\.dueAt is a Date/) }));
+  });
+
   it('keeps the first finding when a poll repeats a key', async () => {
     const t = setup();
     t.setFindings([finding('a', 1), finding('a', 2)]);
@@ -784,6 +808,47 @@ describe('across processes (versioned writes)', () => {
     expect(await p.backend.get('a')).toMatchObject({ status: 'drafted', draft: { proposal: 'p' } });
   });
 
+  it("doesn't let a delayed empty poll resolve a haunt drafted and seen after it started", async () => {
+    let present = true;
+    let releaseEmpty!: () => void;
+    const p = twoProcesses(() => [finding('a')]);
+    // Process C: claims the draft and holds it.
+    let finishDraft!: () => void;
+    p.a.draft.mockImplementationOnce(
+      () => new Promise((resolve) => (finishDraft = () => resolve({ summary: 's', proposal: 'p', reasoning: 'r', options: {} }))),
+    );
+    const drafting = p.a.runner.run();
+    await vi.waitFor(() => expect(p.a.draft).toHaveBeenCalled());
+
+    // Process A: starts a slow poll that will come back empty.
+    const slow = p.make();
+    const slowRunner = createRunner<Payload>({
+      detector: {
+        id: 'test-detector',
+        payloadSchema,
+        poll: () => new Promise((resolve) => (releaseEmpty = () => resolve(present ? [] : []))),
+      },
+      agent: { draft: slow.draft },
+      action: { id: 'test-action', run: slow.actionRun },
+      store: slow.store,
+      log: silentLogger,
+    });
+    const delayedEmpty = slowRunner.run();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // Process B: sees the item while the draft is in flight, then the draft finishes.
+    await p.b.runner.run();
+    finishDraft();
+    await drafting;
+    present = false;
+
+    releaseEmpty();
+    const report = await delayedEmpty;
+
+    expect(report.resolved).toBe(0);
+    expect((await p.backend.get('a'))?.status).toBe('drafted');
+  });
+
   it('drafts from the newest payload when taking over an abandoned claim', async () => {
     let count = 1;
     const p = twoProcesses(() => [finding('a', count)]);
@@ -1001,6 +1066,54 @@ describe('approving: claim, act, record', () => {
 
     const late = await p.make({ now: minutes(11) }).runner.settle('a', 'not_done');
     expect(late).toMatchObject({ ok: true, haunt: { status: 'drafted', claimExpiresAt: null } });
+  });
+
+  it('does not start the action when the claim is acknowledged after the action deadline', async () => {
+    const backend = createMemoryStore();
+    const slowClaims: TrackerStore = {
+      get: (key) => backend.get(key),
+      list: (filter) => backend.list(filter),
+      put: async (haunt, expected) => {
+        const saved = await backend.put(haunt, expected);
+        // The write commits, but the acknowledgement arrives late.
+        if (haunt.status === 'approving') await new Promise((resolve) => setTimeout(resolve, 60));
+        return saved;
+      },
+    };
+    const t = setupWith(slowClaims, { actionTimeoutMs: 20, settleAfterMs: 1_000 });
+    await t.runner.run();
+
+    const result = await t.runner.approve('a');
+
+    expect(result).toMatchObject({ ok: false, reason: 'not_started' });
+    expect(t.actionRun).not.toHaveBeenCalled();
+    expect(await backend.get('a')).toMatchObject({ status: 'drafted', claimExpiresAt: null });
+  });
+
+  it('gives the action only the time left after a slow claim', async () => {
+    const backend = createMemoryStore();
+    const slowClaims: TrackerStore = {
+      get: (key) => backend.get(key),
+      list: (filter) => backend.list(filter),
+      put: async (haunt, expected) => {
+        const saved = await backend.put(haunt, expected);
+        if (haunt.status === 'approving') await new Promise((resolve) => setTimeout(resolve, 60));
+        return saved;
+      },
+    };
+    const t = setupWith(slowClaims, { actionTimeoutMs: 150, settleAfterMs: 1_000 });
+    await t.runner.run();
+    let abortedAfterMs = -1;
+    t.actionRun.mockImplementationOnce((_f, _d, ctx) => {
+      const started = Date.now();
+      ctx.signal.addEventListener('abort', () => (abortedAfterMs = Date.now() - started));
+      return new Promise<ActionResult>(() => {});
+    });
+
+    expect(await t.runner.approve('a')).toMatchObject({ reason: 'outcome_unknown' });
+    // 150 ms total minus ~60 ms spent claiming leaves well under the full 150 ms.
+    expect(abortedAfterMs).toBeGreaterThanOrEqual(0);
+    expect(abortedAfterMs).toBeLessThan(130);
   });
 
   it('rejects a settle grace period that is not longer than the action timeout', () => {

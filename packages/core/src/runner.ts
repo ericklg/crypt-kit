@@ -2,7 +2,7 @@ import type { Action, ActionResult } from './action.js';
 import type { Detector, PollContext } from './detector.js';
 import { draftSchema, type Agent, type Draft } from './draft.js';
 import { findingEnvelopeSchema, type Finding } from './finding.js';
-import { hashPayload } from './hash.js';
+import { findNonJson, hashPayload } from './hash.js';
 import { CLAIMED_STATUSES, OPEN_STATUSES, RESOLVABLE_STATUSES, type Haunt, type HauntStatus } from './haunt.js';
 import { consoleLogger, errorMessage, type Logger } from './logger.js';
 import type { TrackerStore } from './tracker.js';
@@ -68,7 +68,9 @@ export type FailureReason =
   | 'invalid_draft'
   | 'action_failed'
   /** The action was attempted but its result couldn't be saved. The haunt is left `approving`. */
-  | 'outcome_unknown';
+  | 'outcome_unknown'
+  /** The claim took longer than the action timeout to save, so the action was never started. */
+  | 'not_started';
 
 export type OperationResult<P> =
   | { ok: true; haunt: Haunt<P> }
@@ -285,6 +287,13 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         });
         continue;
       }
+      // Checked after the schema, since a schema can transform values (e.g. into Dates).
+      const nonJson = findNonJson(payload.data);
+      if (nonJson) {
+        invalid++;
+        log.warn('dropped finding with a non-JSON payload', { detector: detector.id, key: envelope.data.key, issue: nonJson });
+        continue;
+      }
       if (findings.has(envelope.data.key)) {
         invalid++;
         log.warn('dropped finding with duplicate key', { detector: detector.id, key: envelope.data.key });
@@ -380,9 +389,11 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
       await withLock(haunt.key, async () => {
         const current = await load(haunt.key);
         if (!current || !resolvable(current)) return;
-        // A newer poll (another runner or process) saw this item after ours started,
-        // so our snapshot is too old to say it disappeared.
-        if (current.lastSeenAt >= pollStartedAt) return;
+        // Our snapshot is too old to say the item disappeared if anything touched the haunt
+        // after our poll started: a newer poll saw it, or a draft, spare or settle landed
+        // (a poll that sees a live draft claim can't record lastSeenAt without breaking
+        // the claim). The next run will resolve it if it's really gone.
+        if (current.lastSeenAt >= pollStartedAt || current.updatedAt >= pollStartedAt) return;
         const resolved: Haunt<P> = { ...current, status: 'resolved', claimExpiresAt: null, updatedAt: now().toISOString() };
         if (await write(current, resolved)) report.resolved++;
         else report.conflicts++;
@@ -446,14 +457,14 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
    * Runs the action with an abort signal and a hard timeout. A timeout is reported
    * separately from a failure: the action may still have taken effect.
    */
-  async function runAction(haunt: Haunt<P>, draft: Draft): Promise<Attempt> {
+  async function runAction(haunt: Haunt<P>, draft: Draft, budgetMs: number): Promise<Attempt> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<Attempt>((resolve) => {
       timer = setTimeout(() => {
         controller.abort(new Error('Action timed out'));
         resolve({ timedOut: true });
-      }, actionTimeoutMs);
+      }, budgetMs);
     });
     const attempt = (async (): Promise<Attempt> => {
       try {
@@ -494,6 +505,9 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         //    `approving` and the user settles it instead of re-approving it.
         //    The deadline is stored with the claim, so a runner with a shorter window can't
         //    settle it early while our action is still allowed to run.
+        //    The action's own deadline counts from before the claim write, so a slow
+        //    acknowledgement eats into its budget and it always ends before claimExpiresAt.
+        const actionDeadline = now().getTime() + actionTimeoutMs;
         const claimed = await write(haunt, {
           ...haunt,
           status: 'approving',
@@ -504,8 +518,24 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         });
         if (!claimed) return fail('conflict', CONFLICT_MESSAGE, haunt);
 
-        // 2. Act.
-        const attempt = await runAction(claimed, parsed.data);
+        // 2. Act, within whatever budget the claim left us.
+        const budgetMs = actionDeadline - now().getTime();
+        if (budgetMs <= 0) {
+          // The action never started, so hand the haunt back unless someone else already
+          // has (e.g. settled it after our deadline).
+          log.warn('claim acknowledged too late; action not started', { detector: detector.id, key, action: action.id });
+          const released = await write(claimed, {
+            ...claimed,
+            status: haunt.status,
+            draft: haunt.draft,
+            result: haunt.result,
+            error: haunt.error,
+            claimExpiresAt: null,
+            updatedAt: now().toISOString(),
+          }).catch(() => null);
+          return fail('not_started', 'Claiming this haunt took too long, so the action was not started. Nothing was done; try again.', released ?? claimed);
+        }
+        const attempt = await runAction(claimed, parsed.data, budgetMs);
         if (attempt.timedOut) {
           log.error('action timed out; haunt left approving', { detector: detector.id, key, action: action.id, actionTimeoutMs });
           return fail(

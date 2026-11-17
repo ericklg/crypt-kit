@@ -1,6 +1,7 @@
 import type { Detector, PollContext } from './detector.js';
 import { findingEnvelopeSchema, type Finding } from './finding.js';
 import type { Haunt } from './haunt.js';
+import { findNonJson } from './hash.js';
 import { silentLogger } from './logger.js';
 import type { TrackerStore } from './tracker.js';
 
@@ -144,6 +145,11 @@ export async function assertDetectorContract<P>(
       const payload = detector.payloadSchema.safeParse(envelope.data.payload);
       if (!payload.success) {
         problems.push(`${label} finding[${index}] (${envelope.data.key}) payload: ${payload.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`);
+        return;
+      }
+      const nonJson = findNonJson(payload.data);
+      if (nonJson) {
+        problems.push(`${label} finding[${index}] (${envelope.data.key}) payload is not plain JSON: ${nonJson}`);
         return;
       }
       if (keys.has(envelope.data.key)) problems.push(`${label} duplicate key ${envelope.data.key}`);

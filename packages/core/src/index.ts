@@ -6,7 +6,7 @@ export type { Action, ActionContext, ActionResult } from './action.js';
 export type { Detector, PollContext } from './detector.js';
 export { draftSchema, type Agent, type Draft } from './draft.js';
 export { findingEnvelopeSchema, severitySchema, type Finding, type Severity } from './finding.js';
-export { hashPayload, stableStringify } from './hash.js';
+export { findNonJson, hashPayload, stableStringify } from './hash.js';
 export {
   CLAIMED_STATUSES,
   HAUNT_STATUSES,
