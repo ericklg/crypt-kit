@@ -194,6 +194,32 @@ describe('run: detect and remember', () => {
     expect(warn).toHaveBeenCalledWith('dropped finding with a non-JSON payload', expect.objectContaining({ issue: expect.stringMatching(/payload\.dueAt is a Date/) }));
   });
 
+  it('drops a finding with a cyclic payload and keeps the rest of the run', async () => {
+    const loose = z.object({ count: z.number(), extra: z.unknown() });
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const store = createMemoryStore();
+    const runner = createRunner<z.infer<typeof loose>>({
+      detector: {
+        id: 'loose',
+        payloadSchema: loose,
+        poll: async () => [
+          { ...finding('bad'), payload: { count: 1, extra: cyclic } },
+          { ...finding('good'), payload: { count: 1, extra: 'fine' } },
+        ],
+      },
+      agent: { draft: async () => ({ summary: 's', proposal: 'p', reasoning: 'r', options: {} }) },
+      action: { id: 'noop', run: async () => ({ ok: true, message: '', url: null }) },
+      store,
+      log: silentLogger,
+    });
+
+    const report = await runner.run();
+
+    expect(report).toMatchObject({ ok: true, found: 1, invalid: 1, created: 1 });
+    expect(await store.get('good')).not.toBeNull();
+  });
+
   it('keeps the first finding when a poll repeats a key', async () => {
     const t = setup();
     t.setFindings([finding('a', 1), finding('a', 2)]);

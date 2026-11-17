@@ -37,6 +37,24 @@ describe('findNonJson', () => {
   ])('reports %o', (value, message) => {
     expect(findNonJson(value)).toMatch(message);
   });
+
+  it('reports object and array cycles instead of throwing', () => {
+    const obj: Record<string, unknown> = { a: 1 };
+    obj.self = obj;
+    const arr: unknown[] = [1];
+    arr.push(arr);
+    const nested: Record<string, unknown> = { child: { list: [] as unknown[] } };
+    ((nested.child as { list: unknown[] }).list).push(nested);
+
+    expect(findNonJson(obj)).toMatch(/payload\.self refers back to one of its parents/);
+    expect(findNonJson(arr)).toMatch(/payload\[1\] refers back/);
+    expect(findNonJson(nested)).toMatch(/payload\.child\.list\[0\] refers back/);
+  });
+
+  it('allows the same object to appear twice when there is no cycle', () => {
+    const shared = { id: 1 };
+    expect(findNonJson({ a: shared, b: shared, list: [shared, shared] })).toBeNull();
+  });
 });
 
 describe('stableStringify', () => {

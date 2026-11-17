@@ -23,26 +23,39 @@ export function hashPayload(payload: unknown): string {
  * different type (or vanish). Detectors must convert those first (e.g. dates to ISO strings).
  */
 export function findNonJson(value: unknown, path = 'payload'): string | null {
+  return check(value, path, new Set());
+}
+
+/** `ancestors` holds the objects on the current path only, so shared (acyclic) references are fine. */
+function check(value: unknown, path: string, ancestors: Set<object>): string | null {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return null;
   if (typeof value === 'number') return Number.isFinite(value) ? null : `${path} is ${value}, which JSON can't store`;
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      if (!(i in value)) return `${path}[${i}] is a hole in a sparse array`;
-      const problem = findNonJson(value[i], `${path}[${i}]`);
-      if (problem) return problem;
-    }
-    return null;
-  }
-  if (typeof value === 'object') {
+  if (typeof value !== 'object') return `${path} is ${typeof value}, which JSON can't store`;
+
+  if (ancestors.has(value)) return `${path} refers back to one of its parents, which JSON can't store`;
+  if (!Array.isArray(value)) {
     const proto = Object.getPrototypeOf(value);
     if (proto !== Object.prototype && proto !== null) {
       return `${path} is a ${value.constructor?.name ?? 'non-plain object'}; use a plain object, string or number`;
     }
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        if (!(i in value)) return `${path}[${i}] is a hole in a sparse array`;
+        const problem = check(value[i], `${path}[${i}]`, ancestors);
+        if (problem) return problem;
+      }
+      return null;
+    }
     for (const [key, item] of Object.entries(value)) {
-      const problem = findNonJson(item, `${path}.${key}`);
+      const problem = check(item, `${path}.${key}`, ancestors);
       if (problem) return problem;
     }
     return null;
+  } finally {
+    ancestors.delete(value);
   }
-  return `${path} is ${typeof value}, which JSON can't store`;
 }
