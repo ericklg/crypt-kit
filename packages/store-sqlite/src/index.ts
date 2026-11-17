@@ -11,7 +11,11 @@ export interface SqliteStoreOptions {
   url?: string;
   /** Turso auth token. Only needed for remote databases. */
   authToken?: string;
-  /** Letters, digits and underscores only. Defaults to `crypt_haunts`. */
+  /**
+   * Lowercase letters, digits and single underscores, starting with a letter, at most
+   * 48 characters. Defaults to `crypt_haunts`. Lowercase only because SQLite compares
+   * names case-insensitively, and `__` is reserved for the store's own index names.
+   */
   tableName?: string;
 }
 
@@ -22,7 +26,18 @@ export interface SqliteTrackerStore extends TrackerStore {
   close(): void;
 }
 
-const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+// Lowercase so two spellings can't silently share a table, no `__` so a table can't be
+// named like another store's index, and no `sqlite_` prefix (reserved by SQLite).
+const TABLE_NAME = /^(?!sqlite_)[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
+const MAX_TABLE_NAME = 48;
+
+function invalidTableName(table: string): string | null {
+  if (table.length > MAX_TABLE_NAME) return `at most ${MAX_TABLE_NAME} characters`;
+  if (!TABLE_NAME.test(table)) {
+    return 'use lowercase letters, digits and single underscores, starting with a letter (not "sqlite_")';
+  }
+  return null;
+}
 
 /**
  * A TrackerStore on SQLite through libSQL. The same code runs against a local file in
@@ -32,7 +47,8 @@ const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
  */
 export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrackerStore {
   const table = options.tableName ?? DEFAULT_TABLE_NAME;
-  if (!TABLE_NAME.test(table)) throw new Error(`Invalid table name: ${JSON.stringify(table)}`);
+  const problem = invalidTableName(table);
+  if (problem) throw new Error(`Invalid table name ${JSON.stringify(table)}: ${problem}`);
 
   const ownsClient = !options.client;
   const client =
@@ -46,7 +62,8 @@ export function createSqliteStore(options: SqliteStoreOptions = {}): SqliteTrack
   // Always quoted: a valid name can still be a keyword (`order`, `group`).
   // TABLE_NAME already rules out quote characters, so no escaping is needed.
   const t = `"${table}"`;
-  const index = `"${table}_by_detector"`;
+  // `__` can't appear in a table name, so this can never collide with another store's table.
+  const index = `"${table}__by_detector"`;
 
   let ready: Promise<void> | null = null;
   const migrate = (): Promise<void> => {

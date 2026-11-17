@@ -32,7 +32,10 @@ export interface RunnerOptions<P> {
    * Default 5 min.
    */
   settleAfterMs?: number;
-  /** After this long, a `drafting` claim is treated as abandoned and can be taken over. Default 2 min. */
+  /**
+   * After this long, a `drafting` claim is treated as abandoned and can be taken over.
+   * The agent call is aborted shortly before then. Default 2 min.
+   */
   draftClaimTimeoutMs?: number;
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
@@ -154,6 +157,32 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     throw new RangeError('settleAfterMs must be longer than actionTimeoutMs');
   }
 
+  // How long before the draft claim expires the agent call is aborted. Leaves time to
+  // save draft_failed while the claim is still ours.
+  const draftAbortMarginMs = Math.min(5_000, Math.floor(draftClaimTimeoutMs / 10));
+
+  /**
+   * Calls the agent with an abort signal and a hard timeout of `budgetMs`. A timeout
+   * rejects, so the haunt is saved as draft_failed and can be redrafted.
+   */
+  async function callAgent(haunt: Haunt<P>, budgetMs: number): Promise<unknown> {
+    if (budgetMs <= 0) throw new Error('Claiming the draft took too long, so the agent was not called');
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`The agent didn't answer within ${Math.round(budgetMs / 1000)}s`);
+        controller.abort(error);
+        reject(error);
+      }, budgetMs);
+    });
+    try {
+      return await Promise.race([agent.draft(haunt.finding, { signal: controller.signal }), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** ISO time `ms` from now, by the runner's clock. */
   const inMs = (ms: number) => new Date(now().getTime() + ms).toISOString();
 
@@ -228,6 +257,10 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
    * for the model call, then stores the outcome. Null means another writer won.
    */
   async function claimAndDraft(haunt: Haunt<P>): Promise<Haunt<P> | null> {
+    // The agent's budget counts from before the claim write and ends a margin before
+    // the claim expires, so an overrunning call is aborted while the claim is still ours
+    // instead of running on after another process has taken it over.
+    const agentDeadline = now().getTime() + draftClaimTimeoutMs - draftAbortMarginMs;
     const claimed = await write(haunt, {
       ...haunt,
       status: 'drafting',
@@ -238,7 +271,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     if (!claimed) return null;
     let next: Haunt<P>;
     try {
-      const parsed = draftSchema.safeParse(await agent.draft(claimed.finding));
+      const parsed = draftSchema.safeParse(await callAgent(claimed, agentDeadline - now().getTime()));
       if (!parsed.success) throw new Error('Agent returned a draft that failed validation');
       next = { ...claimed, status: 'drafted', draft: parsed.data, error: null, claimExpiresAt: null, updatedAt: now().toISOString() };
     } catch (error) {

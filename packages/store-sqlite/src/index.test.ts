@@ -63,6 +63,30 @@ describe('createSqliteStore', () => {
     await assertTrackerStoreContract(async () => open(':memory:', tableName));
   });
 
+  it.each([
+    ['Haunts', /lowercase/],
+    ['CRYPT_HAUNTS', /lowercase/],
+    ['crypt__haunts', /single underscores/],
+    ['haunts_', /single underscores/],
+    ['sqlite_haunts', /sqlite_/],
+    ['h'.repeat(49), /at most 48/],
+  ])('rejects the table name %s', (tableName, message) => {
+    expect(() => createSqliteStore({ url: ':memory:', tableName })).toThrow(message);
+  });
+
+  it("can't collide with another store's index name", async () => {
+    const url = tempDbUrl();
+    const a = open(url, 'exorcist');
+    await a.put(sampleHaunt({ key: 'a' }), null);
+
+    // Before the fix, store "exorcist" created an index named "exorcist_by_detector",
+    // so a store using that name as its table failed to migrate.
+    const b = open(url, 'exorcist_by_detector');
+
+    expect(await b.put(sampleHaunt({ key: 'b' }), null)).toBe(true);
+    expect(await a.get('b')).toBeNull();
+  });
+
   it('rejects table names that could inject SQL', () => {
     expect(() => createSqliteStore({ url: ':memory:', tableName: 'haunts; drop table x' })).toThrow(/Invalid table name/);
     expect(() => createSqliteStore({ url: ':memory:', tableName: '1haunts' })).toThrow(/Invalid table name/);

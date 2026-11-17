@@ -888,7 +888,10 @@ describe('across processes (versioned writes)', () => {
     const report = await recovery.runner.run();
 
     expect(report.drafted).toBe(1);
-    expect(recovery.draft).toHaveBeenCalledWith(expect.objectContaining({ payload: { count: 2 } }));
+    expect(recovery.draft).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: { count: 2 } }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(await p.backend.get('a')).toMatchObject({ status: 'drafted', finding: { payload: { count: 2 } }, claimExpiresAt: null });
   });
 
@@ -905,6 +908,37 @@ describe('across processes (versioned writes)', () => {
 
     expect(report.resolved).toBe(1);
     expect((await p.backend.get('a'))?.status).toBe('resolved');
+  });
+
+  it('aborts an overrunning agent call before its claim can be taken over', async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    const slow = p.make({ draftClaimTimeoutMs: 200 });
+    let signal: AbortSignal | undefined;
+    let abortedAt = 0;
+    const startedAt = Date.now();
+    slow.draft.mockImplementationOnce((_f, ctx) => {
+      signal = ctx.signal;
+      ctx.signal.addEventListener('abort', () => (abortedAt = Date.now()));
+      return new Promise(() => {}); // the model never answers
+    });
+
+    const report = await slow.runner.run();
+
+    expect(signal?.aborted).toBe(true);
+    // Aborted a margin (20 ms here) before the 200 ms claim expired.
+    expect(abortedAt - startedAt).toBeLessThan(200);
+    expect(report).toMatchObject({ drafted: 0, draftFailed: 1 });
+    expect(await p.backend.get('a')).toMatchObject({ status: 'draft_failed', claimExpiresAt: null });
+    expect((await p.backend.get('a'))?.error).toMatch(/didn't answer/);
+  });
+
+  it('lets the user redraft after an agent timeout', async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    const t = p.make({ draftClaimTimeoutMs: 100 });
+    t.draft.mockImplementationOnce(() => new Promise(() => {}));
+    await t.runner.run();
+
+    expect(await t.runner.redraft('a')).toMatchObject({ ok: true, haunt: { status: 'drafted' } });
   });
 
   it('bumps the version by one on every write', async () => {

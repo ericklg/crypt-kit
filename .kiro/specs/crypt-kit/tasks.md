@@ -20,9 +20,11 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - [x] 3.3 Cross-process locking: the per-key lock in core is in-process only, so the adapters claim haunts with a conditional write
   - _Requirements: R2.4, R2.5, R4.1, R4.2_
 
-- [ ] 4. Agent (Nov 20)
-  - [ ] 4.1 AI SDK `generateObject` agent, provider from env (Bedrock default)
-  - [ ] 4.2 Untrusted-input prompt wrapping, error -> `draft_failed` + retry
+- [x] 4. Agent (Nov 20)
+  - [x] 4.1 AI SDK structured-output agent (`generateText` + `Output.object`), provider from env (Bedrock default, AI Gateway option)
+  - [x] 4.2 Untrusted-input prompt wrapping, error -> `draft_failed` + retry
+  - [x] 4.3 Agent gets an abort signal and a hard timeout tied to its draft claim, so an overrunning call is stopped before another process takes the claim over (PR #3 gap)
+  - [x] 4.4 SQLite table names are lowercase-only with `__` reserved for index names, so two stores can't share a table or collide with an index (PR #3 gap)
   - _Requirements: R3_
 
 - [ ] 5. Board mockups (Nov 20-21)

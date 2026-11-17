@@ -142,15 +142,17 @@ export interface Runner<P> {
 
 ## Agent
 
-- Built on the Vercel AI SDK `generateObject` with a Zod draft schema. This validates structured output (R3.2).
-- Provider is chosen by `CRYPT_MODEL_PROVIDER` (`bedrock` default, `anthropic`, `openai`) and `CRYPT_MODEL_ID` (R3.5).
-- The prompt receives only the single finding payload plus the app's system prompt. It gets no secrets and no other findings.
-- Untrusted text in findings (issue bodies, product pages) is wrapped as data in the prompt, and the agent's draft is never executed. The approval gate is the control (R4.1).
+- `@crypt-kit/agent` exports `createAiAgent({ model, instructions, options?, describe?, maxRetries? })`. It calls AI SDK 7's `generateText` with `Output.object` and a Zod schema (`generateObject` is legacy in v7), then the runner re-validates the result with `draftSchema` (R3.2).
+- `options` lists the app's yes/no toggles (e.g. `['close']`). The output schema requires exactly those keys, so it stays strict on every provider and the model can't invent new options.
+- `modelFromEnv()` reads `CRYPT_MODEL_PROVIDER` (`bedrock` default, or `gateway` for the Vercel AI Gateway) and a required `CRYPT_MODEL_ID`. There's no default model ID, because IDs change often. Credentials stay in each provider's own variables (`AWS_REGION` with `AWS_BEARER_TOKEN_BEDROCK` or AWS keys; `AI_GATEWAY_API_KEY` or Vercel OIDC) (R3.5, R3.6).
+- The prompt holds the app's instructions, then fixed untrusted-input rules, then one finding as JSON inside `<finding>` tags with `<` escaped, so source text can't close the tag. `describe(finding)` controls exactly what is sent; the default is title, kind, severity, URL and payload. No secrets and no other findings are sent.
+- The agent forwards the runner's abort signal. The runner aborts it a margin (≤ 5 s) before the draft claim expires and stops waiting at the same time, so an overrunning call ends as `draft_failed` (redraftable) instead of being paid for twice after a takeover.
+- The draft is never executed. The approval gate is the control (R4.1).
 
 ## Persistence
 
 - `@crypt-kit/store-sqlite` is one adapter on `@libsql/client`. The same SQL runs on a local `file:` database in development and on Turso in production, because local SQLite files don't persist on serverless (R2.4, R2.5). Configure with `CRYPT_DB_URL` and `CRYPT_DB_AUTH_TOKEN`; the default is `file:crypt-kit.db`.
-- One table per app (default `crypt_haunts`, name validated): `key` PK, `detector_id`, `status`, `version`, `first_seen_at` and the full haunt as JSON in `data`, plus an index on `(detector_id, status, first_seen_at, key)`.
+- One table per app (default `crypt_haunts`): `key` PK, `detector_id`, `status`, `version`, `first_seen_at` and the full haunt as JSON in `data`, plus an index `<table>__by_detector` on `(detector_id, status, first_seen_at, key)`. Table names are lowercase letters, digits and single underscores (max 48, no `sqlite_` prefix): SQLite compares names case-insensitively, and banning `__` means no table can share a name with another store's index.
 - Inserts use `ON CONFLICT (key) DO NOTHING` and updates use `WHERE key = ? AND version = ?`. Each write is one statement, so the version check and the write are atomic.
 - `assertTrackerStoreContract` in `@crypt-kit/core/testing` is the conformance suite. The memory store and the libSQL store both pass it, and any new adapter must too.
 
