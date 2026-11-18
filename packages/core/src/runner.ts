@@ -431,10 +431,13 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           // An abandoned draft claim: release it with the latest observation, so the
           // takeover drafts from the current payload, not the one the dead worker had.
           next = { ...refreshed, status: 'new', claimExpiresAt: null, error: null, updatedAt: at };
-        } else if (DRAFT_HOLDING.includes(current.status) && current.payloadHash !== payloadHash && current.updatedAt < pollStartedAt) {
+        } else if (DRAFT_HOLDING.includes(current.status) && current.payloadHash !== payloadHash) {
+          // A draft or error written after our poll started is newer than our observation.
+          // Write nothing: saving our payload next to that draft would hide the change from
+          // every later poll. The next run compares again.
+          if (current.updatedAt >= pollStartedAt) return;
           // A draft answers the payload it was written for. When the item changed, drop it
-          // and draft again, so nobody approves a proposal about an outdated item. A draft
-          // or error written after our poll started is newer than our observation.
+          // and draft again, so nobody approves a proposal about an outdated item.
           next = { ...refreshed, status: 'new', draft: null, result: null, error: null, updatedAt: at };
         } else if (current.status === 'spared' || current.status === 'resolved') {
           // A rejection sticks until the payload changes, even across a disappear/return (R4.3).

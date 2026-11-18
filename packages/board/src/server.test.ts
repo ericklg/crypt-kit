@@ -19,7 +19,11 @@ const finding = (key: string, n = 1): Finding<P> => ({
 function setup(action: () => Promise<ActionResult> = async () => ({ ok: true, message: 'Posted', url: null })) {
   let findings: Finding<P>[] = [finding('a'), finding('b')];
   const run = vi.fn(action);
+  // A clock that moves on every read, so runs never share a millisecond.
+  const start = Date.now();
+  let tick = 0;
   const runner = createRunner<P>({
+    now: () => new Date(start + tick++),
     detector: { id: 'd', payloadSchema, poll: async () => findings },
     agent: { draft: async (f) => ({ summary: 's', proposal: `About ${f.key}`, reasoning: 'r', options: { close: false } }) },
     action: { id: 'act', run },

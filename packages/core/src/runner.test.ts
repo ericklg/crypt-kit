@@ -749,6 +749,29 @@ describe('spare', () => {
     expect(await t.store.get('a')).toMatchObject({ status: 'action_failed', error: 'GitHub returned 500' });
   });
 
+  it('still redrafts on the next run when a slow poll had to leave a newer draft alone', async () => {
+    const t = setup();
+    t.draft.mockImplementation(async (f) => ({ summary: 's', proposal: `For count ${f.payload.count}`, reasoning: 'r', options: { close: true } }));
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+
+    // A slow poll sees count 2, while a redraft of the count-1 item lands meanwhile.
+    let release!: () => void;
+    t.setFindings(() => new Promise((r) => (release = () => r([finding('a', 2)]))));
+    const slow = t.runner.run();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    await t.runner.redraft('a');
+    release();
+    await slow;
+    const kept = (await t.store.get('a'))!;
+    expect(kept.draft?.proposal).toBe('For count 1');
+    expect(kept.finding.payload).toEqual({ count: 1 }); // payload not overwritten next to the old draft
+
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.draft?.proposal).toBe('For count 2');
+  });
+
   it('redrafts a spared haunt when its payload changes', async () => {
     const t = setup();
     t.setFindings([finding('a', 1)]);
