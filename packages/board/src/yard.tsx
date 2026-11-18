@@ -26,7 +26,16 @@ type Toast = { id: number; message: string; tone: 'ok' | 'fail' };
 const LEAVE_MS = 450;
 const NOW_TICK_MS = 15_000;
 
-const attr = (value: string) => value.replace(/["\\]/g, '\\$&');
+/** Elements Tab can reach inside the drawer. */
+const TABBABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/** Edits belong to one haunt's one draft: two haunts with identical drafts never share them. */
+const editKey = (view: HauntView) => (view.draftId === null ? null : JSON.stringify([view.key, view.draftId]));
+
+/** Finds a grave by key without building a selector, since keys may contain any character. */
+const graveFor = (root: HTMLElement, key: string) =>
+  [...root.querySelectorAll<HTMLElement>('[data-grave]')].find((el) => el.dataset.grave === key) ?? null;
+
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function prefersReducedMotion(): boolean {
@@ -47,7 +56,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
    * catches up (or the runner reopens the key with a newer revision) they show normally.
    */
   const [tombstones, setTombstones] = useState<ReadonlyMap<string, number>>(new Map());
-  /** Edits per draft (`draftId`), so they survive close/reopen but not a new draft. */
+  /** Edits per haunt and draft (`editKey`), so they survive close/reopen but not a new draft. */
   const [edits, setEdits] = useState<Readonly<Record<string, DraftEdits>>>({});
   const [whyOpen, setWhyOpen] = useState<ReadonlySet<string>>(new Set());
   const [pending, setPending] = useState<Readonly<Record<string, Pending>>>({});
@@ -63,6 +72,8 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   itemsRef.current = items;
   const selected = items.find((v) => v.key === selectedKey) ?? null;
   const drawerOpen = open && selected !== null;
+  const drawerOpenRef = useRef(drawerOpen);
+  drawerOpenRef.current = drawerOpen;
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
@@ -99,6 +110,20 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     board?.querySelectorAll('[data-ck-backdrop]').forEach((el) => el.toggleAttribute('inert', drawerOpen));
   }, [drawerOpen]);
 
+  // aria-modal: focus that leaves the open drawer (the host page's own links, a click
+  // elsewhere) is brought back, so Tab and Escape keep working inside it. The ref check
+  // lets the closing render move focus to the yard before this listener is removed.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onFocusIn = (e: FocusEvent) => {
+      const drawer = rootRef.current?.querySelector<HTMLElement>('.ck-drawer');
+      if (!drawerOpenRef.current || !drawer || (e.target instanceof Node && drawer.contains(e.target))) return;
+      drawer.querySelector<HTMLElement>('.ck-drawer-close')?.focus({ preventScroll: true });
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, [drawerOpen]);
+
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -109,7 +134,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     if (target === '@proposal') el = q('#ck-proposal') ?? q('.ck-drawer-close');
     else if (target === '@close') el = q('.ck-drawer-close');
     else if (target === '@yard') el = q('.ck-yard');
-    else if (target) el = q(`[data-grave="${attr(target)}"]`) ?? q('.ck-yard');
+    else if (target) el = graveFor(root, target) ?? q('.ck-yard');
     // A refresh can remove the focused control (e.g. Try again): keep focus inside the modal.
     const drawer = q('.ck-drawer');
     if (!el && drawerOpen && drawer && !drawer.contains(document.activeElement)) el = q('.ck-drawer-close');
@@ -178,7 +203,8 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     if (kind === 'approve' && (busy === 'redraft' || !(APPROVABLE.includes(view.status) && view.draft))) return;
     if (kind === 'spare' && !SPARABLE.includes(view.status)) return;
 
-    const edit = view.draftId ? edits[view.draftId] : undefined;
+    const id = editKey(view);
+    const edit = id ? edits[id] : undefined;
     const delay = motion === 'reduced' || prefersReducedMotion() ? 0 : LEAVE_MS;
     setOpen(false);
     setSelectedKey(key);
@@ -226,6 +252,22 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
       closeDrawer();
       return;
     }
+    if (key === 'tab' && drawerOpen) {
+      const drawer = rootRef.current?.querySelector<HTMLElement>('.ck-drawer');
+      const stops = drawer ? [...drawer.querySelectorAll<HTMLElement>(TABBABLE)] : [];
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (!first || !last) return;
+      const at = document.activeElement;
+      if (e.shiftKey && (at === first || !drawer!.contains(at))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && at === last) {
+        e.preventDefault();
+        first.focus();
+      }
+      return;
+    }
     const target = e.target as HTMLElement;
     if (target.closest('textarea, input, select')) return;
 
@@ -256,20 +298,21 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     }
   };
 
-  const onEdit = (draftId: string, change: DraftEdits) =>
+  const onEdit = (id: string, change: DraftEdits) =>
     setEdits((all) => ({
       ...all,
-      [draftId]: {
-        ...all[draftId],
+      [id]: {
+        ...all[id],
         ...(change.proposal !== undefined ? { proposal: change.proposal } : {}),
-        ...(change.options ? { options: { ...all[draftId]?.options, ...change.options } } : {}),
+        ...(change.options ? { options: { ...all[id]?.options, ...change.options } } : {}),
       },
     }));
+  const selectedEditKey = selected ? editKey(selected) : null;
 
   return (
     <div className="ck-yard-root" ref={rootRef} data-open={drawerOpen} onKeyDown={onKeyDown}>
       <main className="ck-yard" inert={drawerOpen} tabIndex={-1}>
-        <ul className="ck-graves" aria-label="Haunts">
+        <ul className="ck-graves" aria-label={copy.ui.listLabel}>
           {items.length ? (
             items.map((view) => (
               <Grave
@@ -300,11 +343,11 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
           <HauntDetail
             view={selected}
             copy={copy}
-            edits={selected.draftId ? edits[selected.draftId] : undefined}
+            edits={selectedEditKey ? edits[selectedEditKey] : undefined}
             whyOpen={whyOpen.has(selected.key)}
             now={now}
             pending={pending[selected.key] ?? null}
-            onEdit={(change) => selected.draftId && onEdit(selected.draftId, change)}
+            onEdit={(change) => selectedEditKey && onEdit(selectedEditKey, change)}
             onWhyToggle={(isOpen) =>
               setWhyOpen((s) => {
                 if (s.has(selected.key) === isOpen) return s;

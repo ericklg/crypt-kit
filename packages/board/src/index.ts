@@ -5,6 +5,7 @@ export { toHauntView, type Presenter, type ViewOptions } from './view.js';
 export type {
   ResolvedCopy,
   UiCopy,
+  UiCopyOverrides,
   ActionOutcome,
   ApproveEdits,
   BoardActions,

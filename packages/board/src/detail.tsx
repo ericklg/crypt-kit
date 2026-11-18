@@ -37,7 +37,7 @@ export function HauntDetail(props: HauntDetailProps) {
     <>
       <div className="ck-d-kicker">
         <StatusPill status={view.status} label={copy.status[view.status]} />
-        <span className={`ck-sev ck-sev-${view.severity}`}>{view.severity}</span>
+        <span className={`ck-sev ck-sev-${view.severity}`}>{copy.ui.severity[view.severity]}</span>
       </div>
       <h2 className="ck-d-title" id="ck-detail-title">
         {view.title}

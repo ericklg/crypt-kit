@@ -373,3 +373,88 @@ describe('run button', () => {
     expect(t.calls).toContainEqual(['run']);
   });
 });
+
+describe('review round 2', () => {
+  const board = (v: ReturnType<typeof views>, fake = fakeActions(), extra: { defaultOpenKey?: string; theme?: typeof theme } = {}) => (
+    <Board
+      theme={extra.theme ?? theme}
+      haunts={v}
+      score={0}
+      weeklyGoal={20}
+      actions={fake.actions}
+      now={NOW}
+      {...(extra.defaultOpenKey ? { defaultOpenKey: extra.defaultOpenKey } : {})}
+    />
+  );
+  const drawerOf = (c: HTMLElement) => c.querySelector<HTMLElement>('.ck-drawer')!;
+  const graveOf = (c: HTMLElement, key: string) =>
+    [...c.querySelectorAll<HTMLElement>('[data-grave]')].find((el) => el.dataset.grave === key)!;
+
+  it('keeps edits apart for two haunts whose drafts are identical', async () => {
+    const v = views();
+    v[1] = { ...v[1]!, draftId: v[0]!.draftId, draft: { ...v[0]!.draft! } };
+    const fake = fakeActions();
+    const { container } = render(board(v, fake));
+    fireEvent.click(graveOf(container, 'a#1'));
+    fireEvent.change(within(drawerOf(container)).getByRole('textbox'), { target: { value: 'Only for a#1' } });
+    fireEvent.keyDown(drawerOf(container), { key: 'Escape' });
+
+    fireEvent.click(graveOf(container, 'a#2'));
+    expect((within(drawerOf(container)).getByRole('textbox') as HTMLTextAreaElement).value).toBe('Comment one');
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(fake.calls.some((c) => c[0] === 'approve')).toBe(true));
+    expect(fake.calls).toContainEqual(['approve', 'a#2', { proposal: 'Comment one', options: { close: false } }]);
+  });
+
+  it('returns focus to a stone whose key contains quotes and newlines', () => {
+    const odd = 'acme/"lantern"\nissue\\7';
+    const v = views();
+    v[0] = { ...v[0]!, key: odd };
+    const { container } = render(board(v, fakeActions()));
+    fireEvent.click(graveOf(container, odd));
+    expect(() => fireEvent.keyDown(drawerOf(container), { key: 'Escape' })).not.toThrow();
+    expect(document.activeElement).toBe(graveOf(container, odd));
+  });
+
+  it('wraps Tab and Shift+Tab inside the open drawer', () => {
+    const { container } = render(board(views(), fakeActions(), { defaultOpenKey: 'a#1' }));
+    const drawer = drawerOf(container);
+    const close = within(drawer).getByRole('button', { name: 'Close' });
+    const stops = [...drawer.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], textarea, input, summary')];
+    const last = stops[stops.length - 1]!;
+
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(close);
+  });
+
+  it('brings focus back into the drawer when it moves to the host page', () => {
+    const outside = document.createElement('a');
+    outside.href = '#nav';
+    outside.textContent = 'Host nav';
+    document.body.prepend(outside);
+    try {
+      const { container } = render(board(views(), fakeActions(), { defaultOpenKey: 'a#1' }));
+      act(() => outside.focus());
+      expect(document.activeElement).toBe(within(drawerOf(container)).getByRole('button', { name: 'Close' }));
+
+      fireEvent.keyDown(drawerOf(container), { key: 'Escape' });
+      expect(document.activeElement).toBe(graveOf(container, 'a#1'));
+      act(() => outside.focus());
+      expect(document.activeElement).toBe(outside); // closed: the host page is reachable again
+    } finally {
+      outside.remove();
+    }
+  });
+
+  it('takes the list label and severity tags from copy.ui', () => {
+    const v = views();
+    v[0] = { ...v[0]!, severity: 'high' };
+    const t = { ...theme, copy: { ...theme.copy, ui: { listLabel: 'Tumbas', severity: { high: 'Alta' } } } };
+    const { container } = render(board(v, fakeActions(), { theme: t, defaultOpenKey: 'a#1' }));
+    expect(container.querySelector('.ck-graves')!.getAttribute('aria-label')).toBe('Tumbas');
+    expect(container.querySelector('.ck-sev')!.textContent).toBe('Alta');
+  });
+});

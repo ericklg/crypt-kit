@@ -2,6 +2,8 @@ import type { BoardCopy, ResolvedCopy, UiCopy } from './types.js';
 
 /** English defaults for the board's built-in text. Override any of them with `BoardCopy.ui`. */
 export const DEFAULT_UI_COPY: UiCopy = {
+  listLabel: 'Haunts',
+  severity: { low: 'Low', medium: 'Medium', high: 'High' },
   keysLabel: 'Keyboard shortcuts',
   keyMove: 'move',
   keyOpen: 'open',
@@ -39,6 +41,7 @@ export function fill(template: string, values: Record<string, string | number>):
 }
 
 export function resolveCopy(copy: BoardCopy): ResolvedCopy {
-  const { ui, ...rest } = copy;
-  return { ...rest, ui: { ...DEFAULT_UI_COPY, ...ui } };
+  const { ui = {}, ...rest } = copy;
+  const { severity, ...strings } = ui;
+  return { ...rest, ui: { ...DEFAULT_UI_COPY, ...strings, severity: { ...DEFAULT_UI_COPY.severity, ...severity } } };
 }

@@ -54,14 +54,21 @@ export interface BoardCopy {
   /** Labels for the draft's yes/no options, by option key. */
   optionLabels: Record<string, string>;
   /** Any of the board's built-in interface text, overriding `DEFAULT_UI_COPY`. */
-  ui?: Partial<UiCopy>;
+  ui?: UiCopyOverrides;
 }
+
+/** Overrides for `UiCopy`; severity labels can be overridden one at a time. */
+export type UiCopyOverrides = Partial<Omit<UiCopy, 'severity'>> & { severity?: Partial<Record<Severity, string>> };
 
 /**
  * The board's built-in interface text. `{approve}`, `{spare}` and `{minutes}` are filled in.
  * Every string the board renders comes from here or from `BoardCopy`.
  */
 export interface UiCopy {
+  /** Accessible name of the list of stones. */
+  listLabel: string;
+  /** Severity tag in the drawer. */
+  severity: Record<Severity, string>;
   keysLabel: string;
   keyMove: string;
   keyOpen: string;
