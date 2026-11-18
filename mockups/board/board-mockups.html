@@ -17,6 +17,8 @@ a { color: inherit; }
 .i { width: 18px; height: 18px; flex: none; } .i-lg { width: 28px; height: 28px; } .i-xl { width: 56px; height: 56px; }
 :where(button, a, textarea, input, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 noscript { display: block; padding: 40px; font-size: 18px; }
+/* Screen-reader-only text. */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* Mockup chrome (not part of the design) */
 .mockbar { position: fixed; inset: 0 0 auto 0; height: 42px; z-index: 100; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: #050608; border-bottom: 1px dashed #3a3f4a; font: 500 12px/1 var(--font-body); color: #b8bfcc; overflow-x: auto; white-space: nowrap; }
@@ -293,7 +295,7 @@ const emptyState = () => `<div class="empty">${icon(t.creature, 'i-xl')}<h3>${es
 function detail(h) {
   const head = `<div class="d-kicker">${pill(h)}<span class="sev sev-${h.sev}">${h.sev}</span></div>
     <h2 class="d-title">${esc(h.title)}</h2>
-    <p class="d-meta"><span>${esc(h.meta)}</span><span>·</span><span>${esc(h.age)}</span><a class="link" href="#" data-act="noop">${icon('external')}${t.sourceLabel}</a></p>${facts(h)}`;
+    <p class="d-meta"><span>${esc(h.meta)}</span><span>·</span><span>${esc(h.age)}</span><a class="link" href="#" data-act="noop" data-fk="source">${icon('external')}${t.sourceLabel}</a></p>${facts(h)}`;
   if (h.status === 'drafting') return `${head}<div class="d-label">${icon('spark')} Drafting</div>
     <div class="skeleton" style="width:92%"></div><div class="skeleton" style="width:78%"></div><div class="skeleton" style="width:60%"></div>
     <div class="d-actions"><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">You can spare it while the draft is written.</span></div>`;
@@ -301,7 +303,7 @@ function detail(h) {
     <div class="d-actions"><button class="btn primary" type="button" data-act="redraft" data-fk="redraft">${icon('refresh')} Try again</button><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button></div>`;
   if (h.status === 'approving') return `${head}<div class="notice">${icon('clock')}<div><strong>This may already have happened</strong>
     <p>The ${t.approve.toLowerCase()} started but its result wasn’t saved. Check the source before doing anything else. You can record what you find after ${h.unlocksAt}.</p></div></div>
-    <div class="d-actions"><a class="btn" href="#" data-act="noop">${icon('external')} ${t.sourceLabel}</a><button class="btn" type="button" disabled>${icon('check')} It happened</button><button class="btn" type="button" disabled>${icon('x')} It didn’t</button><span class="hint">Unlocks at ${h.unlocksAt}</span></div>`;
+    <div class="d-actions"><a class="btn" href="#" data-act="noop" data-fk="source-check">${icon('external')} ${t.sourceLabel}</a><button class="btn" type="button" disabled>${icon('check')} It happened</button><button class="btn" type="button" disabled>${icon('x')} It didn’t</button><span class="hint">Unlocks at ${h.unlocksAt}</span></div>`;
   if (h.status === 'new') return `${head}<div class="notice">${icon('clock')}<div><strong>Waiting for a draft</strong>
     <p>${esc(h.waiting)} Nothing has been sent to the agent yet.</p></div></div>
     <div class="d-actions"><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">You can spare it before it’s drafted.</span></div>`;
@@ -313,7 +315,7 @@ function detail(h) {
   const approveLabel = h.status === 'action_failed' ? `${icon('refresh')} Try ${t.approve.toLowerCase()} again` : `${icon('check')} ${t.approve}`;
   return `${head}${failed}<div class="d-label">${icon('spark')} What the agent found</div><p class="d-summary">${esc(h.summary)}</p>
     <label class="d-label" for="proposal">${t.proposalLabel} <kbd>E</kbd></label><textarea id="proposal" class="d-proposal" data-fk="proposal" rows="5">${esc(h.proposal)}</textarea>${opts}
-    <details class="d-why"><summary>Why this draft</summary><p>${esc(h.reasoning)}</p></details>
+    <details class="d-why" data-why ${h.whyOpen ? 'open' : ''}><summary data-fk="why">Why this draft</summary><p>${esc(h.reasoning)}</p></details>
     <div class="d-actions"><button class="btn primary" type="button" data-act="approve" data-fk="approve">${approveLabel} <kbd>A</kbd></button><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">${t.approveHint}</span></div>`;
 }
 
@@ -408,12 +410,12 @@ function renderA() {
 
 function renderB() {
   const pct = Math.min(100, Math.round((t.score / t.weeklyGoal) * 100));
-  const price = (h) => { const n = h.facts?.find((f) => f.label === 'Now'), w = h.facts?.find((f) => f.label === 'Was'); return n ? `<p class="g-price">${n.value}${w ? `<s>${w.value}</s>` : ''}</p>` : ''; };
+  const price = (h) => { const n = h.facts?.find((f) => f.label === 'Now'), w = h.facts?.find((f) => f.label === 'Was'); return n ? `<p class="g-price">${n.value}${w ? `<s><span class="sr">, was </span>${w.value}</s>` : ''}</p>` : ''; };
   const wasOpen = $view.classList.contains('open');
   $view.innerHTML = `<div class="hud"><div class="meter"><div class="meter-top"><span><b>${t.score}</b> of ${t.weeklyGoal} ${t.scoreLabel}</span><span>${items.length} ${t.openLabel}</span></div>
       <div class="bar" role="progressbar" aria-label="Weekly goal" aria-valuemin="0" aria-valuemax="${t.weeklyGoal}" aria-valuenow="${Math.min(t.score, t.weeklyGoal)}" aria-valuetext="${t.score} of ${t.weeklyGoal} ${t.scoreLabel}${t.score > t.weeklyGoal ? ', goal reached' : ''}"><span style="width:${pct}%"></span></div></div>
       <div class="keys"><span><kbd>J</kbd> <kbd>K</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>A</kbd> approve</span><span><kbd>R</kbd> spare</span></div></div>
-    <main class="yard"><ul class="graves" aria-label="Haunts">${items.length ? items.map((h, i) => `<li class="grave ${i === sel ? 'sel' : ''}" data-i="${i}" data-fk="grave-${h.id}" data-status="${h.status}" tabindex="0" role="button" aria-haspopup="dialog" aria-label="${esc(h.title)}, ${t.status[h.status][1]}">
+    <main class="yard"><ul class="graves" aria-label="Haunts">${items.length ? items.map((h, i) => `<li class="grave ${i === sel ? 'sel' : ''}" data-i="${i}" data-fk="grave-${h.id}" data-status="${h.status}" tabindex="0" role="button" aria-haspopup="dialog">
       <span class="spirit">${icon(t.creature, 'i-lg')}</span><h3>${esc(h.title)}</h3><p class="g-meta">${esc(h.meta)}<br>${esc(h.age)}</p>${price(h)}${pill(h)}</li>`).join('') : `<li style="grid-column:1/-1">${emptyState()}</li>`}</ul></main>
     <div class="scrim" data-act="close"></div>
     <aside class="drawer" role="dialog" aria-modal="true" aria-label="Haunt details"><button class="btn ghost close" type="button" data-act="close" data-fk="close" aria-label="Close">${icon('x')}</button><div aria-live="polite">${items[sel] ? detail(items[sel]) : ''}</div></aside>`;
@@ -515,6 +517,10 @@ function redraft() {
 document.addEventListener('input', (e) => {
   if (e.target.id === 'proposal' && items[sel]) items[sel].proposal = e.target.value;
 });
+// Remember whether "Why this draft" is open, so a re-render doesn't collapse it.
+document.addEventListener('toggle', (e) => {
+  if (e.target.matches?.('[data-why]') && items[sel]) items[sel].whyOpen = e.target.open;
+}, true);
 document.addEventListener('change', (e) => {
   const key = e.target.dataset?.opt;
   if (key && items[sel]?.options && Object.hasOwn(items[sel].options, key)) items[sel].options[key] = e.target.checked;
@@ -557,12 +563,22 @@ document.addEventListener('keydown', (e) => {
   // Single-key shortcuts: only on the board itself (not the mockup toolbar), and only when switched on.
   if (!shortcutsOn || e.target.closest('.mockbar')) return;
   // Act on the focused grave, not a stale selection.
-  if (grave && !drawerOpen) sel = Number(grave.dataset.i);
+  // Holding A or R must not act on one haunt after another.
+  if (e.repeat && (key === 'a' || key === 'r')) return;
+  // A, R and E act on the focused grave. The selection (and its highlight) only moves
+  // when one of those shortcuts is actually used, never on Tab or other keys.
+  const targetFocused = () => {
+    if (grave && !drawerOpen && Number(grave.dataset.i) !== sel) {
+      sel = Number(grave.dataset.i);
+      render();
+    }
+  };
   const handlers = {
     j: () => !drawerOpen && select(sel + 1), k: () => !drawerOpen && select(sel - 1),
     arrowright: () => view === 'b' && !drawerOpen && select(sel + 1), arrowleft: () => view === 'b' && !drawerOpen && select(sel - 1),
-    a: () => resolve('approve'), r: () => resolve('spare'),
-    e: () => { if (view === 'b' && !drawerOpen) openDrawer(sel); setTimeout(() => document.getElementById('proposal')?.focus(), 60); },
+    a: () => { targetFocused(); resolve('approve'); },
+    r: () => { targetFocused(); resolve('spare'); },
+    e: () => { targetFocused(); if (view === 'b' && !drawerOpen) openDrawer(sel); setTimeout(() => document.getElementById('proposal')?.focus(), 60); },
   };
   if (handlers[key]) { e.preventDefault(); handlers[key](); }
 });
