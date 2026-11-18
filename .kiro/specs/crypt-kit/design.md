@@ -130,6 +130,8 @@ export interface Runner<P> {
 - Validated payloads must be plain JSON (`findNonJson`), because haunts are persisted as JSON. Detectors convert dates and other rich types to strings or numbers.
 - A `spared` haunt is re-drafted only if `hash(payload)` changes (R4.3).
 - An `approved` haunt stays closed unless the app sets `reopenApprovedOnChange`. Then a poll that finds its payload changed reopens it as `new`. Exorcist uses this so an issue that goes stale again after a comment comes back; Poltergeist doesn't need it, since a new price is a new key. An `approving` haunt is never reopened.
+- A draft answers the payload it was written for. When a poll finds a `drafted`, `draft_failed` or `action_failed` haunt's payload changed, the draft is dropped and the haunt goes back to `new` to be drafted again.
+- Like resolving, reopening and dropping drafts only apply to haunts not written after the poll started, so a slow poll can't undo a newer approval, draft or error.
 - `maxDraftsPerRun` defaults to 20 (R3.4). Findings over the cap stay `new` and are drafted oldest-first on the next run.
 - Every write is compare-and-set on `version`, so concurrent writers in any process can't overwrite each other. A write that loses is skipped and counted in `RunReport.conflicts`, or returned as `conflict` from an operation.
 - Approve is claim, act, record. The claim moves the haunt to `approving` with a versioned write before the action runs, so only one process can reach the action (R4.2). If the result can't be saved, the haunt stays `approving` and approve returns `outcome_unknown`. The board then asks the user to check the source and settle it, rather than offering approve again.

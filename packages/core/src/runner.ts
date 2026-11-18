@@ -120,6 +120,9 @@ export interface Runner<P> {
   list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
 }
 
+/** Open statuses whose draft (or failed draft) was written for one specific payload. */
+const DRAFT_HOLDING: readonly HauntStatus[] = ['drafted', 'draft_failed', 'action_failed'];
+
 const locksByStore = new WeakMap<TrackerStore, Set<string>>();
 const runsByStore = new WeakMap<TrackerStore, Map<string, Promise<RunReport>>>();
 
@@ -405,7 +408,14 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
         // A finished approval comes back as new when the app opts in and the item really
         // changed (e.g. a thread that went stale again after the comment). Never while
         // `approving`: that write would break the claim.
-        if (reopenApprovedOnChange && current.status === 'approved' && current.payloadHash !== payloadHash) {
+        // An approval that landed after our poll started is newer than what we saw, so a
+        // slow poll can't undo it (same rule as resolving, below).
+        if (
+          reopenApprovedOnChange &&
+          current.status === 'approved' &&
+          current.payloadHash !== payloadHash &&
+          current.updatedAt < pollStartedAt
+        ) {
           if (await write(current, freshHaunt(finding, payloadHash, at, current.firstSeenAt))) report.reopened++;
           else report.conflicts++;
           return;
@@ -421,6 +431,11 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           // An abandoned draft claim: release it with the latest observation, so the
           // takeover drafts from the current payload, not the one the dead worker had.
           next = { ...refreshed, status: 'new', claimExpiresAt: null, error: null, updatedAt: at };
+        } else if (DRAFT_HOLDING.includes(current.status) && current.payloadHash !== payloadHash && current.updatedAt < pollStartedAt) {
+          // A draft answers the payload it was written for. When the item changed, drop it
+          // and draft again, so nobody approves a proposal about an outdated item. A draft
+          // or error written after our poll started is newer than our observation.
+          next = { ...refreshed, status: 'new', draft: null, result: null, error: null, updatedAt: at };
         } else if (current.status === 'spared' || current.status === 'resolved') {
           // A rejection sticks until the payload changes, even across a disappear/return (R4.3).
           if (current.sparedPayloadHash !== null && current.sparedPayloadHash === payloadHash) {

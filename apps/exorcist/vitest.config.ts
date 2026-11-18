@@ -16,6 +16,7 @@ export default defineProject({
       { find: /^@crypt-kit\/core$/, replacement: pkg('core/src/index.ts') },
       { find: /^@crypt-kit\/agent$/, replacement: pkg('agent/src/index.ts') },
       { find: /^@crypt-kit\/board\/server$/, replacement: pkg('board/src/server.ts') },
+      { find: /^@crypt-kit\/board$/, replacement: pkg('board/src/index.ts') },
     ],
   },
 });
