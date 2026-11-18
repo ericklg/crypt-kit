@@ -36,7 +36,8 @@ export function exorcistTheme(repos: readonly string[]): BoardTheme {
       run: 'Summon',
       proposalLabel: 'Comment to post',
       sourceLabel: 'Open on GitHub',
-      actionFailedTitle: 'The comment wasn’t posted',
+      // Not "the comment wasn't posted": the comment may have landed before the close failed.
+      actionFailedTitle: 'Banishing didn’t finish',
       waiting: 'This run reached its draft limit. It’s first in line for the next run.',
       emptyTitle: 'All quiet in the crypt',
       emptyBody: 'No stale issues or pull requests.',

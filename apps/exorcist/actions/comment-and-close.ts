@@ -52,6 +52,12 @@ export function createCommentAndCloseAction(options: CommentAndCloseOptions): Ac
         posted = res.data.find((c) => c.body?.includes(marker)) ?? null;
         url = res.next;
       }
+      // An unfinished search can't prove there's no earlier comment, so don't risk a duplicate.
+      if (!posted && url) {
+        throw new Error(
+          `More than ${MAX_MARKER_PAGES * 100} comments since this item went quiet, so an earlier attempt couldn’t be ruled out. Nothing was posted; check the thread on GitHub.`,
+        );
+      }
 
       const reused = posted !== null;
       if (!posted) {

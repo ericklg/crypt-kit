@@ -9,6 +9,8 @@ const state = vi.hoisted(() => ({
 
 vi.mock('next/headers', () => ({ headers: async () => new Headers(state.authorization ? { authorization: state.authorization } : {}) }));
 vi.mock('botid/server', () => ({ checkBotId: async () => ({ isBot: state.isBot }) }));
+const refresh = vi.hoisted(() => vi.fn());
+vi.mock('next/cache', () => ({ refresh }));
 vi.mock('../crypt', () => ({ getConfig: () => state.config, getRunner: () => state.runner }));
 
 const { spare, run } = await import('./actions');
@@ -52,5 +54,15 @@ describe('server action guard', () => {
   it('lets anyone act in the public demo', async () => {
     state.config = { boardPassword: null, publicDemo: true };
     expect(await spare('acme/lantern#214')).toEqual({ ok: true });
+  });
+
+  it('refreshes the board after every operation, refused ones included', async () => {
+    refresh.mockClear();
+    state.config = { boardPassword: null, publicDemo: true };
+    await run();
+    await spare('acme/lantern#214');
+    state.config = { boardPassword: null, publicDemo: false };
+    await spare('acme/lantern#214');
+    expect(refresh).toHaveBeenCalledTimes(3);
   });
 });

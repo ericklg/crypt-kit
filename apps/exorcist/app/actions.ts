@@ -3,6 +3,7 @@
 import type { ApproveEdits, BoardActions } from '@crypt-kit/board';
 import { BoardAccessError, createBoardActions } from '@crypt-kit/board/server';
 import { checkBotId } from 'botid/server';
+import { refresh } from 'next/cache';
 import { headers } from 'next/headers';
 import { accessMode, basicAuthMatches } from '../access';
 import { getConfig, getRunner } from '../crypt';
@@ -27,22 +28,34 @@ async function guard(): Promise<void> {
 let actions: BoardActions | null = null;
 const board = () => (actions ??= createBoardActions(getRunner, { guard }));
 
+/**
+ * Sends the board fresh views after every operation, failed ones too: a failed approve
+ * still moves the haunt to action_failed, and the client needs the new revision.
+ */
+async function andRefresh<T>(op: Promise<T>): Promise<T> {
+  try {
+    return await op;
+  } finally {
+    refresh();
+  }
+}
+
 export async function approve(key: string, edits: ApproveEdits) {
-  return board().approve(key, edits);
+  return andRefresh(board().approve(key, edits));
 }
 
 export async function spare(key: string) {
-  return board().spare(key);
+  return andRefresh(board().spare(key));
 }
 
 export async function redraft(key: string) {
-  return board().redraft(key);
+  return andRefresh(board().redraft(key));
 }
 
 export async function settle(key: string, outcome: 'done' | 'not_done') {
-  return board().settle(key, outcome);
+  return andRefresh(board().settle(key, outcome));
 }
 
 export async function run() {
-  return board().run();
+  return andRefresh(board().run());
 }

@@ -99,6 +99,11 @@ export const recordedGitHubRoutes: FixtureRoute[] = [
   },
   { match: `${API}/repositories/42/issues?state=open&sort=updated&direction=asc&per_page=100&page=2`, body: emberPage2 },
   {
+    // 7 comments: the latest five span pages 1 and 2.
+    match: `${API}/repos/acme/ember/issues/81/comments?per_page=5&page=1`,
+    body: [1, 2, 3, 4, 5].map((n) => comment(`user${n}`, `Comment ${n}`, `2026-10-0${n}T00:00:00Z`)),
+  },
+  {
     match: `${API}/repos/acme/ember/issues/81/comments?per_page=5&page=2`,
     body: [comment('kai', 'I can take this.', '2026-10-10T00:00:00Z'), comment('lee', 'Thanks!', '2026-10-16T13:00:00Z')],
   },

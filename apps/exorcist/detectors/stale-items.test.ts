@@ -2,7 +2,7 @@ import { hashPayload, silentLogger, type PollContext } from '@crypt-kit/core';
 import { assertDetectorContract, fixtureFetch } from '@crypt-kit/core/testing';
 import { describe, expect, it } from 'vitest';
 import { createStaleItemsDetector } from './stale-items';
-import { FIXTURE_NOW, recordedGitHubRoutes } from './fixtures/github';
+import { FIXTURE_NOW, lanternIssues, recordedGitHubRoutes } from './fixtures/github';
 
 const detector = (extra: Partial<Parameters<typeof createStaleItemsDetector>[0]> = {}) =>
   createStaleItemsDetector({ repos: ['acme/lantern', 'acme/ember'], ...extra });
@@ -34,6 +34,7 @@ describe('stale items detector', () => {
       '/repos/acme/lantern/issues/214/comments?per_page=5&page=1',
       '/repos/acme/ember/issues?state=open&sort=updated&direction=asc&per_page=100',
       '/repositories/42/issues?state=open&sort=updated&direction=asc&per_page=100&page=2',
+      '/repos/acme/ember/issues/81/comments?per_page=5&page=1',
       '/repos/acme/ember/issues/81/comments?per_page=5&page=2',
     ]);
   });
@@ -49,6 +50,18 @@ describe('stale items detector', () => {
     expect(calls.some((c) => c.url.includes('/repositories/7/'))).toBe(false);
   });
 
+  it('throws instead of returning a partial list when a repo has more stale items than it reads', async () => {
+    const page = Array.from({ length: 100 }, (_, i) => ({ ...lanternIssues[0]!, number: i + 1, comments: 0 }));
+    const routes = [
+      {
+        match: /\/(repos\/acme\/lantern|repositories\/7)\/issues\?/,
+        headers: { link: '<https://api.github.com/repositories/7/issues?page=next>; rel="next"' },
+        body: page,
+      },
+    ];
+    await expect(detector({ repos: ['acme/lantern'] }).poll(ctx(routes).context)).rejects.toThrow(/more than 1000 stale items/);
+  });
+
   it('keeps the latest comments, labels and author in the payload', async () => {
     const { context } = ctx();
     const [crash, , paths, typo] = await detector().poll(context);
@@ -62,7 +75,8 @@ describe('stale items detector', () => {
     });
     expect(crash!.payload.lastComments.at(-1)).toEqual({ author: 'mira', body: 'Any update?', createdAt: '2026-10-08T16:40:00.000Z' });
     expect(paths!.payload.labels).toEqual(['windows']);
-    expect(typo!.payload.lastComments.map((c) => c.author)).toEqual(['kai', 'lee']);
+    // 7 comments: the latest five come from the end of page 1 and all of page 2.
+    expect(typo!.payload.lastComments.map((c) => c.author)).toEqual(['user3', 'user4', 'user5', 'kai', 'lee']);
   });
 
   it('rates severity by how long past the cutoff an item is', async () => {

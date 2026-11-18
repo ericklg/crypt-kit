@@ -96,6 +96,18 @@ describe('comment-and-close action', () => {
     expect(gh.calls.some((c) => c.method === 'POST')).toBe(true);
   });
 
+  it('refuses to post when it could not read every comment since the item went quiet', async () => {
+    const calls: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const req = new Request(input, init);
+      calls.push(req.method);
+      const next = '<https://api.github.com/repositories/7/issues/214/comments?page=n>; rel="next"';
+      return Response.json([{ body: 'unrelated', html_url: 'x' }], { headers: { link: next } });
+    };
+    await expect(createCommentAndCloseAction({ token: 'tok', fetch }).run(item(), draft(true), { signal })).rejects.toThrow(/Nothing was posted/);
+    expect(calls.filter((m) => m !== 'GET')).toEqual([]);
+  });
+
   it('fails with GitHub’s reason, so the haunt shows the error and stays open', async () => {
     const gh = fakeGitHub([], { 'POST /repos/acme/lantern/issues/214/comments': 403 });
     await expect(createCommentAndCloseAction({ token: 'tok', fetch: gh.fetch }).run(item(), draft(true), { signal })).rejects.toThrow(

@@ -116,15 +116,23 @@ export function createStaleItemsDetector(options: StaleItemsOptions): Detector<S
       const now = ctx.now();
       const cutoff = now.getTime() - staleDays * DAY_MS;
 
+      // The latest RECENT_COMMENTS comments: the last page, plus the one before it when the
+      // last page is short (e.g. 6 comments = page 2 holds only #6).
       const lastComments = async (repo: string, item: IssueJson) => {
         if (item.comments === 0) return [];
-        const page = Math.ceil(item.comments / RECENT_COMMENTS);
-        const { data } = await github.request<CommentJson[]>(
-          'GET',
-          `/repos/${repo}/issues/${item.number}/comments?per_page=${RECENT_COMMENTS}&page=${page}`,
-          { signal: ctx.signal },
+        const last = Math.ceil(item.comments / RECENT_COMMENTS);
+        const pages = item.comments % RECENT_COMMENTS !== 0 && last > 1 ? [last - 1, last] : [last];
+        const results = await Promise.all(
+          pages.map((page) =>
+            github.request<CommentJson[]>('GET', `/repos/${repo}/issues/${item.number}/comments?per_page=${RECENT_COMMENTS}&page=${page}`, {
+              signal: ctx.signal,
+            }),
+          ),
         );
-        return data.map((c) => ({ author: c.user?.login ?? null, body: excerpt(c.body, COMMENT_CHARS), createdAt: iso(c.created_at) }));
+        return results
+          .flatMap((r) => r.data)
+          .slice(-RECENT_COMMENTS)
+          .map((c) => ({ author: c.user?.login ?? null, body: excerpt(c.body, COMMENT_CHARS), createdAt: iso(c.created_at) }));
       };
 
       const findings: Finding<StaleItem>[] = [];
@@ -137,7 +145,8 @@ export function createStaleItemsDetector(options: StaleItemsOptions): Detector<S
           stale.push(...(fresh === -1 ? res.data : res.data.slice(0, fresh)));
           url = fresh === -1 ? res.next : null;
         }
-        if (url) ctx.log.warn(`${repo}: more than ${MAX_PAGES * 100} stale items; only the oldest ${MAX_PAGES * 100} are tracked`);
+        // A partial list would let the runner resolve stale items it simply didn't reach.
+        if (url) throw new Error(`${repo} has more than ${MAX_PAGES * 100} stale items; raise staleDays or split the repo list`);
 
         const comments = await mapLimit(stale, COMMENT_FETCHES_AT_ONCE, (item) => lastComments(repo, item));
         stale.forEach((item, i) => {
