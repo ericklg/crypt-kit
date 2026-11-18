@@ -29,12 +29,17 @@ export type ExorcistConfig = {
   cronSecret: string | null;
 };
 
-/** Reads and validates the app's env. Throws a readable error naming the bad variables. */
+/** A missing or invalid env var. Its message names variables, never their values. */
+export class ConfigError extends Error {
+  override readonly name = 'ConfigError';
+}
+
+/** Reads and validates the app's env. Throws a ConfigError naming the bad variables. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): ExorcistConfig {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {
     const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
-    throw new Error(`Exorcist is misconfigured: ${problems}`);
+    throw new ConfigError(`Exorcist is misconfigured: ${problems}`);
   }
   const e = parsed.data;
   return {

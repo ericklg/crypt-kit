@@ -31,6 +31,8 @@ export function getRunner(): Runner<StaleItem> {
       describe: (f) => describeStaleItem(f),
     }),
     action: createCommentAndCloseAction({ token: c.githubToken }),
+    // An issue banished with a comment can go quiet again later; bring it back then.
+    reopenApprovedOnChange: true,
     // Its own table, so Exorcist and Poltergeist can share one database.
     store: createSqliteStore({ url, tableName: 'exorcist_haunts', ...(authToken ? { authToken } : {}) }),
   });

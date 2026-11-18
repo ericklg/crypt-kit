@@ -1,6 +1,8 @@
+import { ModelConfigError } from '@crypt-kit/agent';
 import { Board } from '@crypt-kit/board';
 import { loadBoard } from '@crypt-kit/board/server';
 import { connection } from 'next/server';
+import { ConfigError } from '../config';
 import { getConfig, getRunner } from '../crypt';
 import { staleItemPresenter } from '../presenter';
 import { exorcistTheme } from '../theme';
@@ -14,14 +16,18 @@ export default async function Page() {
   await connection();
 
   let config;
+  let runner;
   try {
     config = getConfig();
+    runner = getRunner();
   } catch (error) {
-    return <SetupNotice message={error instanceof Error ? error.message : String(error)} />;
+    // Only setup mistakes get the notice; anything else is a real error.
+    if (error instanceof ConfigError || error instanceof ModelConfigError) return <SetupNotice message={error.message} />;
+    throw error;
   }
 
   const now = new Date();
-  const { haunts, score } = await loadBoard(getRunner(), staleItemPresenter, { now });
+  const { haunts, score } = await loadBoard(runner, staleItemPresenter, { now });
   return (
     <Board
       theme={exorcistTheme(config.repos)}

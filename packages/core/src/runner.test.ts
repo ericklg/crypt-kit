@@ -639,6 +639,53 @@ describe('spare', () => {
     expect(t.draft).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps an approved haunt closed when its payload changes, by default', async () => {
+    const t = setup();
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    await t.runner.approve('a');
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approved');
+  });
+
+  it('reopens an approved haunt whose payload changed when reopenApprovedOnChange is on', async () => {
+    const t = setup({ reopenApprovedOnChange: true });
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    await t.runner.approve('a');
+
+    t.setFindings([finding('a', 1)]); // same payload: stays approved
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approved');
+
+    t.setFindings([]); // got activity, no longer reported
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approved');
+
+    t.setFindings([finding('a', 2)]); // stale again, with new activity
+    const report = await t.runner.run();
+    expect(report).toMatchObject({ reopened: 1, drafted: 1 });
+    expect(await t.store.get('a')).toMatchObject({ status: 'drafted', result: null });
+  });
+
+  it('never reopens an approval still in flight', async () => {
+    let release!: () => void;
+    const t = setup({ reopenApprovedOnChange: true });
+    t.actionRun.mockImplementationOnce(() => new Promise<ActionResult>((r) => (release = () => r({ ok: true, message: 'Done', url: null }))));
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    const approving = t.runner.approve('a');
+    await vi.waitFor(() => expect(t.actionRun).toHaveBeenCalled());
+
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approving');
+    release();
+    expect((await approving).ok).toBe(true);
+    expect((await t.store.get('a'))?.status).toBe('approved');
+  });
+
   it('redrafts a spared haunt when its payload changes', async () => {
     const t = setup();
     t.setFindings([finding('a', 1)]);

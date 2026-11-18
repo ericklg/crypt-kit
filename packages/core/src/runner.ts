@@ -37,6 +37,12 @@ export interface RunnerOptions<P> {
    * The agent call is aborted shortly before then. Default 2 min.
    */
   draftClaimTimeoutMs?: number;
+  /**
+   * Reopen an `approved` haunt as `new` when a poll finds its payload changed. Off by
+   * default, because most keys name one event (a price, a version). Turn it on when a key
+   * names a long-lived item that can need acting on again, like a GitHub issue.
+   */
+  reopenApprovedOnChange?: boolean;
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
   log?: Logger;
@@ -152,6 +158,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   const actionTimeoutMs = options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
   const settleAfterMs = options.settleAfterMs ?? DEFAULT_SETTLE_AFTER_MS;
   const draftClaimTimeoutMs = options.draftClaimTimeoutMs ?? DEFAULT_DRAFT_CLAIM_TIMEOUT_MS;
+  const reopenApprovedOnChange = options.reopenApprovedOnChange ?? false;
 
   if (!Number.isInteger(maxDrafts) || maxDrafts < 0) {
     throw new RangeError('maxDraftsPerRun must be a non-negative integer');
@@ -395,6 +402,14 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           return;
         }
         const current = existing as Haunt<P>;
+        // A finished approval comes back as new when the app opts in and the item really
+        // changed (e.g. a thread that went stale again after the comment). Never while
+        // `approving`: that write would break the claim.
+        if (reopenApprovedOnChange && current.status === 'approved' && current.payloadHash !== payloadHash) {
+          if (await write(current, freshHaunt(finding, payloadHash, at, current.firstSeenAt))) report.reopened++;
+          else report.conflicts++;
+          return;
+        }
         // Never rewrite an approval (claimed or done) or a draft claim someone still holds:
         // bumping the version would make their final write fail.
         if (current.status === 'approving' || current.status === 'approved' || liveClaim(current)) return;
