@@ -4,7 +4,7 @@ export const CRYPT_KIT_VERSION = '0.2.0';
 
 export type { Action, ActionContext, ActionResult } from './action.js';
 export type { Detector, PollContext } from './detector.js';
-export { draftSchema, type Agent, type Draft } from './draft.js';
+export { draftSchema, type Agent, type AgentContext, type Draft } from './draft.js';
 export { findingEnvelopeSchema, severitySchema, type Finding, type Severity } from './finding.js';
 export { findNonJson, hashPayload, stableStringify } from './hash.js';
 export {

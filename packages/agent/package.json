@@ -1,0 +1,22 @@
+{
+  "name": "@crypt-kit/agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.142",
+    "@crypt-kit/core": "workspace:*",
+    "ai": "^7.0.173",
+    "zod": "^4.6.7"
+  }
+}

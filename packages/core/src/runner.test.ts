@@ -888,7 +888,10 @@ describe('across processes (versioned writes)', () => {
     const report = await recovery.runner.run();
 
     expect(report.drafted).toBe(1);
-    expect(recovery.draft).toHaveBeenCalledWith(expect.objectContaining({ payload: { count: 2 } }));
+    expect(recovery.draft).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: { count: 2 } }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(await p.backend.get('a')).toMatchObject({ status: 'drafted', finding: { payload: { count: 2 } }, claimExpiresAt: null });
   });
 
@@ -905,6 +908,37 @@ describe('across processes (versioned writes)', () => {
 
     expect(report.resolved).toBe(1);
     expect((await p.backend.get('a'))?.status).toBe('resolved');
+  });
+
+  it('aborts an overrunning agent call before its claim can be taken over', async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    const slow = p.make({ draftClaimTimeoutMs: 200 });
+    let signal: AbortSignal | undefined;
+    let abortedAt = 0;
+    const startedAt = Date.now();
+    slow.draft.mockImplementationOnce((_f, ctx) => {
+      signal = ctx.signal;
+      ctx.signal.addEventListener('abort', () => (abortedAt = Date.now()));
+      return new Promise(() => {}); // the model never answers
+    });
+
+    const report = await slow.runner.run();
+
+    expect(signal?.aborted).toBe(true);
+    // Aborted a margin (20 ms here) before the 200 ms claim expired.
+    expect(abortedAt - startedAt).toBeLessThan(200);
+    expect(report).toMatchObject({ drafted: 0, draftFailed: 1 });
+    expect(await p.backend.get('a')).toMatchObject({ status: 'draft_failed', claimExpiresAt: null });
+    expect((await p.backend.get('a'))?.error).toMatch(/didn't answer/);
+  });
+
+  it('lets the user redraft after an agent timeout', async () => {
+    const p = twoProcesses(() => [finding('a')]);
+    const t = p.make({ draftClaimTimeoutMs: 100 });
+    t.draft.mockImplementationOnce(() => new Promise(() => {}));
+    await t.runner.run();
+
+    expect(await t.runner.redraft('a')).toMatchObject({ ok: true, haunt: { status: 'drafted' } });
   });
 
   it('bumps the version by one on every write', async () => {
@@ -1140,6 +1174,87 @@ describe('approving: claim, act, record', () => {
     // 150 ms total minus ~60 ms spent claiming leaves well under the full 150 ms.
     expect(abortedAfterMs).toBeGreaterThanOrEqual(0);
     expect(abortedAfterMs).toBeLessThan(130);
+  });
+
+  /** A store whose writes to `status` commit at once but are acknowledged `delayMs` later. */
+  function slowAcks(backend: TrackerStore, status: string, delayMs: number): TrackerStore {
+    return {
+      get: (key) => backend.get(key),
+      list: (filter) => backend.list(filter),
+      put: async (haunt, expected) => {
+        const saved = await backend.put(haunt, expected);
+        if (haunt.status === status) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return saved;
+      },
+    };
+  }
+
+  it('does not call the agent when the draft claim is acknowledged after its deadline', async () => {
+    const backend = createMemoryStore();
+    const draft = vi.fn(async () => ({ summary: 's', proposal: 'p', reasoning: 'r', options: {} }));
+    // 100 ms claim minus a 10 ms margin leaves 90 ms; the claim takes 120 ms to acknowledge.
+    const t = setupWith(slowAcks(backend, 'drafting', 120), { draftClaimTimeoutMs: 100, agent: { draft } });
+
+    const report = await t.runner.run();
+
+    expect(draft).not.toHaveBeenCalled();
+    expect(report).toMatchObject({ drafted: 0, draftFailed: 1 });
+    expect(await backend.get('a')).toMatchObject({ status: 'draft_failed', claimExpiresAt: null });
+    expect((await backend.get('a'))?.error).toMatch(/took too long/);
+  });
+
+  it('gives the agent only the time left after a slow draft claim', async () => {
+    const backend = createMemoryStore();
+    let abortedAfterMs = -1;
+    const draft = vi.fn((_f: Finding<Payload>, ctx: { signal: AbortSignal }) => {
+      const started = Date.now();
+      ctx.signal.addEventListener('abort', () => (abortedAfterMs = Date.now() - started));
+      return new Promise<unknown>(() => {});
+    });
+    // 200 ms claim minus a 20 ms margin leaves 180 ms; 60 ms goes to the claim.
+    const t = setupWith(slowAcks(backend, 'drafting', 60), { draftClaimTimeoutMs: 200, agent: { draft } });
+
+    const report = await t.runner.run();
+
+    expect(draft).toHaveBeenCalledTimes(1);
+    expect(abortedAfterMs).toBeGreaterThanOrEqual(0);
+    // Well under the 180 ms it would get if the budget started after the claim.
+    expect(abortedAfterMs).toBeLessThan(160);
+    expect(report).toMatchObject({ draftFailed: 1 });
+  });
+
+  it('records draft_failed when an agent answers from its abort handler after the deadline', async () => {
+    const backend = createMemoryStore();
+    const draft = vi.fn(
+      (_f: Finding<Payload>, ctx: { signal: AbortSignal }) =>
+        new Promise<unknown>((resolve) => {
+          // A "fallback" draft returned the instant the call is aborted.
+          ctx.signal.addEventListener('abort', () => resolve({ summary: 's', proposal: 'fallback', reasoning: 'r', options: {} }));
+        }),
+    );
+    const t = setupWith(backend, { draftClaimTimeoutMs: 100, agent: { draft } });
+
+    const report = await t.runner.run();
+
+    expect(report).toMatchObject({ drafted: 0, draftFailed: 1 });
+    expect(await backend.get('a')).toMatchObject({ status: 'draft_failed', draft: null });
+  });
+
+  it('leaves the haunt approving when an action answers from its abort handler after the deadline', async () => {
+    const backend = createMemoryStore();
+    const t = setupWith(backend, { actionTimeoutMs: 20 });
+    await t.runner.run();
+    t.actionRun.mockImplementationOnce(
+      (_f, _d, ctx) =>
+        new Promise<ActionResult>((resolve) => {
+          ctx.signal.addEventListener('abort', () => resolve({ ok: true, message: 'claims success', url: null }));
+        }),
+    );
+
+    const result = await t.runner.approve('a');
+
+    expect(result).toMatchObject({ ok: false, reason: 'outcome_unknown' });
+    expect((await backend.get('a'))?.status).toBe('approving');
   });
 
   it('rejects a settle grace period that is not longer than the action timeout', () => {

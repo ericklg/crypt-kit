@@ -10,7 +10,7 @@ inclusion: always
 - **Validation:** Zod at every trust boundary (detector payloads, agent drafts, env, request bodies).
 - **Tests:** Vitest. Tests sit next to source as `*.test.ts`. Run `pnpm test`; `pnpm typecheck` runs `tsc -b`.
 - **Apps (later tasks):** Next.js on Vercel. Server components by default; `'use client'` only for real interactivity. Vercel BotID gates every route that triggers an action.
-- **AI:** Vercel AI SDK `generateObject`, provider from env (`CRYPT_MODEL_PROVIDER`, default Bedrock).
+- **AI:** Vercel AI SDK 7 through `@crypt-kit/agent`: `generateText` with `Output.object` (not `generateObject`), `instructions` (not `system`). Model from `modelFromEnv()`: `CRYPT_MODEL_PROVIDER` (`bedrock` default, or `gateway`) and a required `CRYPT_MODEL_ID`. Never hardcode model IDs from memory; check the provider's current list. Before changing AI SDK code, read the bundled docs in `node_modules/ai/docs/`.
 
 Security:
 

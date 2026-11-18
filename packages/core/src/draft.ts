@@ -12,7 +12,16 @@ export const draftSchema = z.object({
 
 export type Draft = z.infer<typeof draftSchema>;
 
+export interface AgentContext {
+  /**
+   * Aborts when the runner's draft claim is about to expire. Forward it to the model
+   * call (e.g. `generateText({ abortSignal })`), so an overrunning draft stops before
+   * another process takes the claim over and pays for a second call.
+   */
+  signal: AbortSignal;
+}
+
 /** Drafts an action for a single finding. Called only after detection, once per new finding. */
 export interface Agent<P> {
-  draft(finding: Finding<P>): Promise<unknown>;
+  draft(finding: Finding<P>, ctx: AgentContext): Promise<unknown>;
 }
