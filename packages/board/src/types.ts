@@ -67,6 +67,8 @@ export type UiCopyOverrides = Partial<Omit<UiCopy, 'severity'>> & { severity?: P
 export interface UiCopy {
   /** Accessible name of the list of stones. */
   listLabel: string;
+  /** Screen-reader word before a headline's old value: "$12, was $20". */
+  was: string;
   /** Severity tag in the drawer. */
   severity: Record<Severity, string>;
   keysLabel: string;

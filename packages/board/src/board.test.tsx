@@ -452,9 +452,89 @@ describe('review round 2', () => {
   it('takes the list label and severity tags from copy.ui', () => {
     const v = views();
     v[0] = { ...v[0]!, severity: 'high' };
-    const t = { ...theme, copy: { ...theme.copy, ui: { listLabel: 'Tumbas', severity: { high: 'Alta' } } } };
+    v[1] = { ...v[1]!, headline: { value: '$7', was: '$14' } };
+    const t = { ...theme, copy: { ...theme.copy, ui: { listLabel: 'Tumbas', was: 'antes', severity: { high: 'Alta' } } } };
     const { container } = render(board(v, fakeActions(), { theme: t, defaultOpenKey: 'a#1' }));
     expect(container.querySelector('.ck-graves')!.getAttribute('aria-label')).toBe('Tumbas');
     expect(container.querySelector('.ck-sev')!.textContent).toBe('Alta');
+    expect(container.querySelector('.ck-g-price')!.textContent).toBe('$7, antes $14');
+  });
+});
+
+describe('review round 3', () => {
+  const board = (v: ReturnType<typeof views>, fake = fakeActions(), extra: { defaultOpenKey?: string } = {}) => (
+    <Board
+      theme={theme}
+      haunts={v}
+      score={0}
+      weeklyGoal={20}
+      actions={fake.actions}
+      now={NOW}
+      {...(extra.defaultOpenKey ? { defaultOpenKey: extra.defaultOpenKey } : {})}
+    />
+  );
+  const drawerOf = (c: HTMLElement) => c.querySelector<HTMLElement>('.ck-drawer')!;
+  const graveOf = (c: HTMLElement, key: string) =>
+    [...c.querySelectorAll<HTMLElement>('[data-grave]')].find((el) => el.dataset.grave === key) ?? null;
+
+  it.each(['approved', 'spared', 'resolved'] as const)('shows no Spare button for a %s haunt that kept its draft', (status) => {
+    const v = views();
+    v[0] = { ...v[0]!, status };
+    const { container } = render(board(v, fakeActions(), { defaultOpenKey: 'a#1' }));
+    expect(within(drawerOf(container)).queryByRole('button', { name: /Spare/ })).toBeNull();
+  });
+
+  it('does not report a redraft conflict that lands after Spare succeeded', async () => {
+    let finishRedraft!: (r: { ok: false; message: string }) => void;
+    const fake = fakeActions({ redraft: () => new Promise((resolve) => (finishRedraft = resolve)) });
+    const v = views();
+    v[0] = { ...v[0]!, status: 'draft_failed', draft: null, draftId: null, error: 'Timed out.' };
+    const { container } = render(board(v, fake, { defaultOpenKey: 'a#1' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Try again/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Spare/ }));
+    await waitFor(() => expect(graveOf(container, 'a#1')).toBeNull());
+    expect(screen.getByRole('status').textContent).toContain('Spared');
+
+    await act(async () => finishRedraft({ ok: false, message: 'Someone else changed this haunt.' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('status').textContent).toContain('Spared');
+  });
+
+  it('still reports a redraft failure when nothing superseded it', async () => {
+    const fake = fakeActions({ redraft: async () => ({ ok: false, message: 'The model is down.' }) });
+    const v = views();
+    v[0] = { ...v[0]!, status: 'draft_failed', draft: null, draftId: null, error: 'Timed out.' };
+    render(board(v, fake, { defaultOpenKey: 'a#1' }));
+    fireEvent.click(screen.getByRole('button', { name: /Try again/ }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('The model is down.'));
+  });
+
+  it('moves focus to the next stone as soon as the drawer closes, before the request ends', async () => {
+    let finish!: (r: { ok: boolean; message: string }) => void;
+    const fake = fakeActions({ approve: () => new Promise((resolve) => (finish = resolve as typeof finish)) });
+    const { container } = render(board(views(), fake, { defaultOpenKey: 'a#1' }));
+
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    expect(document.activeElement).toBe(graveOf(container, 'a#2'));
+
+    await waitFor(() => expect(fake.calls.some((c) => c[0] === 'approve')).toBe(true));
+    await act(async () => finish({ ok: false, message: 'GitHub returned 500.' }));
+    expect(document.activeElement).toBe(graveOf(container, 'a#1')); // failed: back to the stone
+  });
+
+  it('does not take focus back from where the user moved it during the request', async () => {
+    let finish!: (r: { ok: true }) => void;
+    const fake = fakeActions({ spare: () => new Promise((resolve) => (finish = resolve)) });
+    const { container } = render(board(views(), fake, { defaultOpenKey: 'a#1' }));
+
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Spare/ }));
+    fireEvent.keyDown(graveOf(container, 'a#2')!, { key: 'j' });
+    expect(document.activeElement).toBe(graveOf(container, 'a#3'));
+
+    await waitFor(() => expect(fake.calls.some((c) => c[0] === 'spare')).toBe(true));
+    await act(async () => finish({ ok: true }));
+    expect(graveOf(container, 'a#1')).toBeNull();
+    expect(document.activeElement).toBe(graveOf(container, 'a#3'));
   });
 });

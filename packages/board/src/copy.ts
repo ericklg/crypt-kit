@@ -3,6 +3,7 @@ import type { BoardCopy, ResolvedCopy, UiCopy } from './types.js';
 /** English defaults for the board's built-in text. Override any of them with `BoardCopy.ui`. */
 export const DEFAULT_UI_COPY: UiCopy = {
   listLabel: 'Haunts',
+  was: 'was',
   severity: { low: 'Low', medium: 'Medium', high: 'High' },
   keysLabel: 'Keyboard shortcuts',
   keyMove: 'move',

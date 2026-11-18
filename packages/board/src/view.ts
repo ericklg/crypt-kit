@@ -37,7 +37,8 @@ export function toHauntView<P>(haunt: Haunt<P>, present: Presenter<P>, options: 
   return {
     key: haunt.key,
     revision: haunt.version,
-    draftId: haunt.draft ? hashPayload(haunt.draft).slice(0, 16) : null,
+    // Includes the key, so identical drafts on two haunts still get different ids.
+    draftId: haunt.draft ? hashPayload({ key: haunt.key, draft: haunt.draft }).slice(0, 16) : null,
     status: haunt.status,
     severity: finding.severity,
     title: finding.title,

@@ -69,7 +69,9 @@ export function HauntDetail(props: HauntDetailProps) {
   );
 }
 
-function SpareButton({ copy, onSpare, pending }: Pick<HauntDetailProps, 'copy' | 'onSpare' | 'pending'>) {
+function SpareButton({ view, copy, onSpare, pending }: Pick<HauntDetailProps, 'view' | 'copy' | 'onSpare' | 'pending'>) {
+  // Only statuses the runner can spare get the button (not approved, spared or resolved).
+  if (!SPARABLE.includes(view.status)) return null;
   // Sparing stays available during a redraft; the runner discards the late draft.
   return (
     <button className="ck-btn" type="button" onClick={onSpare} disabled={isFinal(pending)}>
@@ -96,7 +98,7 @@ function DetailBody(props: HauntDetailProps) {
           </div>
         </div>
         <div className="ck-d-actions">
-          {SPARABLE.includes(view.status) ? <SpareButton {...props} /> : null}
+          <SpareButton {...props} />
           <span className="ck-hint">{fill(ui.waitingHint, words)}</span>
         </div>
       </>

@@ -44,6 +44,8 @@ describe('toHauntView', () => {
     expect(a.draftId).toBe(b.draftId);
     expect(a.draftId).not.toBe(c.draftId);
     expect(a.revision).toBe(2);
+    const other = toHauntView(sampleHaunt({ key: 'acme/other#1', draft: d }), p);
+    expect(other.draftId).not.toBe(a.draftId); // identical drafts on two haunts differ
   });
 
   it('exposes claimExpiresAt for approving haunts', () => {

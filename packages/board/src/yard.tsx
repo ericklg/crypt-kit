@@ -36,6 +36,9 @@ const editKey = (view: HauntView) => (view.draftId === null ? null : JSON.string
 const graveFor = (root: HTMLElement, key: string) =>
   [...root.querySelectorAll<HTMLElement>('[data-grave]')].find((el) => el.dataset.grave === key) ?? null;
 
+/** Ops that end a haunt's turn on the board; their success supersedes requests still in flight. */
+const FINAL_OPS: ReadonlySet<Pending> = new Set<Pending>(['approve', 'spare', 'settle']);
+
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function prefersReducedMotion(): boolean {
@@ -64,6 +67,8 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   const [now, setNow] = useState(() => Date.parse(nowProp));
 
   const rootRef = useRef<HTMLDivElement>(null);
+  /** Bumped per key when a final op succeeds; requests started before it are superseded. */
+  const epochs = useRef(new Map<string, number>());
   /** What to focus after the next render: a grave key, '@close', '@proposal' or '@yard'. */
   const focusNext = useRef<string | null>(open ? '@close' : null);
 
@@ -178,6 +183,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   // so one slow server action would hold back every other action's UI updates.
   const run = (key: string, op: Exclude<Pending, null>, call: () => Promise<ActionOutcome>, after?: (res: ActionOutcome) => void) => {
     setPendingFor(key, op);
+    const startedIn = epochs.current.get(key) ?? 0;
     void (async () => {
       let res: ActionOutcome;
       try {
@@ -190,7 +196,11 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
         const { [key]: _done, ...rest } = p;
         return rest;
       });
-      if (!res.ok) showToast(res.message, 'fail');
+      // A final op that succeeded while this request was in flight (e.g. Spare during a
+      // redraft) supersedes it: its expected conflict is not news to the user.
+      const superseded = (epochs.current.get(key) ?? 0) !== startedIn;
+      if (!res.ok && !superseded) showToast(res.message, 'fail');
+      if (res.ok && FINAL_OPS.has(op)) epochs.current.set(key, (epochs.current.get(key) ?? 0) + 1);
       after?.(res);
     })();
   };
@@ -206,9 +216,19 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     const id = editKey(view);
     const edit = id ? edits[id] : undefined;
     const delay = motion === 'reduced' || prefersReducedMotion() ? 0 : LEAVE_MS;
+    // Focus moves now, not when the request ends: the drawer goes inert and the stone fades
+    // out, and a slow request must not leave keyboard focus (and the shortcuts) stranded.
+    const parkedOn = neighbourOf(key) ?? '@yard';
+    const stillParked = () => {
+      const root = rootRef.current;
+      const active = document.activeElement;
+      if (!root || !active || active === document.body) return true;
+      return active === (parkedOn === '@yard' ? root.querySelector('.ck-yard') : graveFor(root, parkedOn));
+    };
     setOpen(false);
     setSelectedKey(key);
     setLeaving((m) => new Map(m).set(key, kind));
+    focusNext.current = parkedOn;
 
     run(
       key,
@@ -231,14 +251,15 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
           next.delete(key);
           return next;
         });
+        // Only take focus back if the user hasn't moved it since.
         if (!res.ok) {
-          focusNext.current = key;
+          if (stillParked()) focusNext.current = key;
           return;
         }
         const next = neighbourOf(key);
         setTombstones((t) => new Map(t).set(key, view.revision));
         setSelectedKey((cur) => (cur === key ? next : cur));
-        focusNext.current = next ?? '@yard';
+        if (stillParked()) focusNext.current = next ?? '@yard';
         showToast(kind === 'approve' ? copy.approved : copy.spared);
       },
     );
@@ -412,7 +433,7 @@ function Grave({ view, copy, creature, selected, leaving, onOpen }: GraveProps) 
             {view.headline.value}
             {view.headline.was ? (
               <s>
-                <span className="ck-sr">, was </span>
+                <span className="ck-sr">{`, ${copy.ui.was} `}</span>
                 {view.headline.was}
               </s>
             ) : null}
