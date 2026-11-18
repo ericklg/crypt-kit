@@ -163,6 +163,11 @@ export type ActionOutcome = { ok: true } | { ok: false; message: string };
 export interface ApproveEdits {
   proposal: string;
   options: Record<string, boolean>;
+  /**
+   * The `revision` the user reviewed. Pass it to the runner as `expectedVersion`, so an
+   * approve fails with a conflict instead of applying these edits to a newer draft.
+   */
+  revision: number;
 }
 
 /**

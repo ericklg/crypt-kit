@@ -239,6 +239,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
             ? actions.approve(key, {
                 proposal: edit?.proposal ?? view.draft!.proposal,
                 options: { ...view.draft!.options, ...edit?.options },
+                revision: view.revision,
               })
             : actions.spare(key),
           wait(delay),

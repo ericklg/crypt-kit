@@ -445,6 +445,27 @@ describe('approval gate', () => {
     expect(t.actionRun).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses edits made against an older version once a run has replaced the draft', async () => {
+    const t = setup();
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    const seen = (await t.store.get('a'))!;
+
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    const now = (await t.store.get('a'))!;
+    expect(now.version).not.toBe(seen.version);
+
+    const stale = await t.runner.approve('a', { proposal: 'Written for the old draft', expectedVersion: seen.version });
+    expect(stale).toMatchObject({ ok: false, reason: 'conflict' });
+    expect(t.actionRun).not.toHaveBeenCalled();
+    expect((await t.store.get('a'))?.status).toBe('drafted');
+
+    const fresh = await t.runner.approve('a', { expectedVersion: now.version });
+    expect(fresh.ok).toBe(true);
+    expect(t.actionRun).toHaveBeenCalledTimes(1);
+  });
+
   it('runs the action only once when approve is double-clicked', async () => {
     const t = setup();
     t.setFindings([finding('a')]);

@@ -94,6 +94,8 @@ export interface TrackerStore {
 
 export interface Runner<P> {
   run(): Promise<RunReport>;
+  // edits: { proposal?, options?, expectedVersion? }. With expectedVersion, approve fails
+  // with `conflict` if the haunt changed since the user reviewed it (no stale edits).
   approve(key: string, edits?: DraftEdits): Promise<OperationResult<P>>;
   spare(key: string): Promise<OperationResult<P>>;
   redraft(key: string): Promise<OperationResult<P>>;

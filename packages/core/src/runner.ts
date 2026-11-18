@@ -83,6 +83,12 @@ export interface DraftEdits {
   proposal?: string;
   /** Only keys already present in the draft's options can be changed. */
   options?: Record<string, boolean>;
+  /**
+   * The haunt version the user reviewed. When set, approve fails with `conflict` if the
+   * haunt has changed since (e.g. a run replaced the draft), so edits written for one
+   * draft are never applied to another.
+   */
+  expectedVersion?: number;
 }
 
 /** What the user found at the source for a haunt stuck in `approving`. */
@@ -534,6 +540,11 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     approve(key, edits = {}) {
       return operate(key, APPROVABLE, async (haunt) => {
         if (!haunt.draft) return fail('not_allowed', 'Haunt has no draft to approve', haunt);
+        // The claim below is a compare-and-set on this loaded version, so this check holds
+        // up to the moment of the claim.
+        if (edits.expectedVersion !== undefined && haunt.version !== edits.expectedVersion) {
+          return fail('conflict', CONFLICT_MESSAGE, haunt);
+        }
         const parsed = draftSchema.safeParse(applyEdits(haunt.draft, edits));
         if (!parsed.success) return fail('invalid_draft', 'Edited draft failed validation', haunt);
 

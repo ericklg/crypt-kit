@@ -117,7 +117,7 @@ describe('approve and spare', () => {
     fireEvent.click(within(t.drawer()).getByRole('button', { name: /Banish/ }));
 
     await waitFor(() => expect(t.container.querySelector('[data-grave="a#1"]')).toBeNull());
-    expect(t.calls).toContainEqual(['approve', 'a#1', { proposal: 'Edited', options: { close: true } }]);
+    expect(t.calls).toContainEqual(['approve', 'a#1', { proposal: 'Edited', options: { close: true }, revision: 3 }]);
     expect(document.activeElement).toBe(t.grave('a#2'));
     expect(screen.getByRole('status').textContent).toContain('Banished. Comment posted.');
   });
@@ -144,7 +144,7 @@ describe('approve and spare', () => {
     fireEvent.keyDown(t.grave('a#3'), { key: 'a', repeat: true });
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(t.calls.filter(([n]) => n === 'approve')).toEqual([['approve', 'a#2', { proposal: 'Comment two', options: { close: true } }]]);
+    expect(t.calls.filter(([n]) => n === 'approve')).toEqual([['approve', 'a#2', { proposal: 'Comment two', options: { close: true }, revision: 3 }]]);
     expect(t.grave('a#3')).toBeTruthy();
   });
 
@@ -403,7 +403,7 @@ describe('review round 2', () => {
     expect((within(drawerOf(container)).getByRole('textbox') as HTMLTextAreaElement).value).toBe('Comment one');
     fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
     await waitFor(() => expect(fake.calls.some((c) => c[0] === 'approve')).toBe(true));
-    expect(fake.calls).toContainEqual(['approve', 'a#2', { proposal: 'Comment one', options: { close: false } }]);
+    expect(fake.calls).toContainEqual(['approve', 'a#2', { proposal: 'Comment one', options: { close: false }, revision: 3 }]);
   });
 
   it('returns focus to a stone whose key contains quotes and newlines', () => {
