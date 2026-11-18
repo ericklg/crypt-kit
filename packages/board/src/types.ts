@@ -74,10 +74,15 @@ export interface UiCopy {
   keysLabel: string;
   keyMove: string;
   keyOpen: string;
+  /** Keycap label for the Enter key in the shortcut legend. */
+  keyEnter: string;
   weeklyGoal: string;
-  /** "{score} of {goal} {scoreLabel}" with ", goal reached" appended when over. */
+  /** Appended to the meter's accessible text (", goal reached") once the score passes the goal. */
   goalReached: string;
-  of: string;
+  /** Weekly meter text; `{score}`, `{goal}` and `{scoreLabel}` are filled in. */
+  goalProgress: string;
+  /** Open count above the meter; `{count}` and `{openLabel}` are filled in. */
+  openCount: string;
   close: string;
   found: string;
   why: string;

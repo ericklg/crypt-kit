@@ -459,6 +459,20 @@ describe('review round 2', () => {
     expect(container.querySelector('.ck-sev')!.textContent).toBe('Alta');
     expect(container.querySelector('.ck-g-price')!.textContent).toBe('$7, antes $14');
   });
+
+  it('lets copy.ui reorder the meter text and rename the Enter keycap', () => {
+    const t = {
+      ...theme,
+      copy: { ...theme.copy, ui: { goalProgress: '{scoreLabel}: {score}/{goal}', openCount: '{openLabel} ({count})', keyEnter: 'Eingabe' } },
+    };
+    const { container } = render(<Board theme={t} haunts={views()} score={12} weeklyGoal={20} actions={fakeActions().actions} now={NOW} />);
+    const top = container.querySelectorAll('.ck-meter-top > span');
+    expect(top[0]!.textContent).toBe(`${theme.copy.scoreLabel}: 12/20`);
+    expect(top[0]!.querySelector('b')!.textContent).toBe('12');
+    expect(top[1]!.textContent).toBe(`${theme.copy.openLabel} (6)`);
+    expect(container.querySelector('.ck-bar')!.getAttribute('aria-valuetext')).toBe(`${theme.copy.scoreLabel}: 12/20`);
+    expect(container.querySelector('.ck-keys')!.textContent).toContain('Eingabe');
+  });
 });
 
 describe('review round 3', () => {

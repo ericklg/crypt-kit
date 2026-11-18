@@ -1,9 +1,17 @@
-import type { CSSProperties } from 'react';
-import { resolveCopy } from './copy.js';
+import { Fragment, type CSSProperties, type ReactNode } from 'react';
+import { fill, resolveCopy } from './copy.js';
 import { Icon } from './icons.js';
 import { RunButton } from './run-button.js';
 import type { BoardActions, BoardTheme, HauntView, Palette } from './types.js';
 import { Yard } from './yard.js';
+
+/** Like `fill`, but placeholder values may be elements (e.g. a bold score). */
+function fillNodes(template: string, values: Record<string, ReactNode>): ReactNode[] {
+  return template.split(/(\{\w+\})/).map((part, i) => {
+    const name = /^\{(\w+)\}$/.exec(part)?.[1];
+    return <Fragment key={i}>{name !== undefined && name in values ? values[name] : part}</Fragment>;
+  });
+}
 
 export interface BoardProps {
   theme: BoardTheme;
@@ -65,12 +73,8 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
       <div className="ck-hud" data-ck-backdrop="">
         <div className="ck-meter">
           <div className="ck-meter-top">
-            <span>
-              <b>{score}</b> {ui.of} {weeklyGoal} {copy.scoreLabel}
-            </span>
-            <span>
-              {haunts.length} {copy.openLabel}
-            </span>
+            <span>{fillNodes(ui.goalProgress, { score: <b>{score}</b>, goal: weeklyGoal, scoreLabel: copy.scoreLabel })}</span>
+            <span>{fill(ui.openCount, { count: haunts.length, openLabel: copy.openLabel })}</span>
           </div>
           <div
             className="ck-bar"
@@ -79,7 +83,7 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
             aria-valuemin={0}
             aria-valuemax={weeklyGoal}
             aria-valuenow={Math.min(score, weeklyGoal)}
-            aria-valuetext={`${score} ${ui.of} ${weeklyGoal} ${copy.scoreLabel}${score > weeklyGoal ? `, ${ui.goalReached}` : ''}`}
+            aria-valuetext={`${fill(ui.goalProgress, { score, goal: weeklyGoal, scoreLabel: copy.scoreLabel })}${score > weeklyGoal ? `, ${ui.goalReached}` : ''}`}
           >
             <span style={{ width: `${pct}%` }} />
           </div>
@@ -89,7 +93,7 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
             <kbd>J</kbd> <kbd>K</kbd> {ui.keyMove}
           </span>
           <span>
-            <kbd>Enter</kbd> {ui.keyOpen}
+            <kbd>{ui.keyEnter}</kbd> {ui.keyOpen}
           </span>
           <span>
             <kbd>A</kbd> {copy.approve.toLowerCase()}
