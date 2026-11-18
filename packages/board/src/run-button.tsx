@@ -1,29 +1,36 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { Icon } from './icons.js';
-import type { ActionOutcome } from './types.js';
+import type { ActionOutcome, UiCopy } from './types.js';
 
-/** Starts a run through the app's server action and reports the result inline. */
-export function RunButton({ label, run }: { label: string; run: () => Promise<ActionOutcome> }) {
-  const [pending, startTransition] = useTransition();
+type RunCopy = Pick<UiCopy, 'running' | 'runDone' | 'runFailed'>;
+
+/**
+ * Starts a run through the app's server action and reports the result inline. Uses its
+ * own pending state rather than a transition, so a slow run can't hold back the yard.
+ */
+export function RunButton({ label, ui, run }: { label: string; ui: RunCopy; run: () => Promise<ActionOutcome> }) {
+  const [pending, setPending] = useState(false);
   const [status, setStatus] = useState('');
 
-  const onClick = () =>
-    startTransition(async () => {
-      setStatus('');
-      try {
-        const res = await run();
-        setStatus(res.ok ? 'Done. The board is up to date.' : res.message);
-      } catch {
-        setStatus('The run failed. Try again.');
-      }
-    });
+  const onClick = async () => {
+    setPending(true);
+    setStatus('');
+    try {
+      const res = await run();
+      setStatus(res.ok ? ui.runDone : res.message);
+    } catch {
+      setStatus(ui.runFailed);
+    } finally {
+      setPending(false);
+    }
+  };
 
   return (
     <div className="ck-run">
       <span className="ck-run-status" aria-live="polite">
-        {pending ? 'Running…' : status}
+        {pending ? ui.running : status}
       </span>
       <button className="ck-btn" type="button" onClick={onClick} disabled={pending}>
         <Icon name="wand" /> {label}

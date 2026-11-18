@@ -233,6 +233,136 @@ describe('states', () => {
   });
 });
 
+describe('review fixes', () => {
+  const board = (v: ReturnType<typeof views>, fake = fakeActions(), extra: { defaultOpenKey?: string; theme?: typeof theme } = {}) => (
+    <Board
+      theme={extra.theme ?? theme}
+      haunts={v}
+      score={0}
+      weeklyGoal={20}
+      actions={fake.actions}
+      now={NOW}
+      {...(extra.defaultOpenKey ? { defaultOpenKey: extra.defaultOpenKey } : {})}
+    />
+  );
+
+  it('keeps settling locked when the deadline is unknown', () => {
+    const v = views();
+    v[5] = { ...v[5]!, claimExpiresAt: null };
+    render(board(v, fakeActions(), { defaultOpenKey: 'a#6' }));
+    expect((screen.getByRole('button', { name: /It happened/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Waiting for the first attempt to time out.')).toBeTruthy();
+  });
+
+  it('takes interface text from copy.ui and the theme verbs', () => {
+    const t = { ...theme, copy: { ...theme.copy, approve: 'Claim deal', spare: 'Let it rest', ui: { keyMove: 'mover', close: 'Cerrar' } } };
+    const { container } = render(board(views(), fakeActions(), { theme: t, defaultOpenKey: 'a#1' }));
+    const legend = container.querySelector('.ck-keys')!.textContent!;
+    expect(legend).toContain('mover');
+    expect(legend).toContain('claim deal');
+    expect(legend).toContain('let it rest');
+    expect(legend).not.toMatch(/approve|spare/);
+    expect(screen.getByRole('button', { name: 'Cerrar' })).toBeTruthy();
+  });
+
+  it('shows a key again when the runner reopens it with a newer revision', async () => {
+    const fake = fakeActions();
+    const { container, rerender } = render(board(views(), fake));
+    const g = () => container.querySelector('[data-grave="a#1"]');
+    fireEvent.click(g()!);
+    fireEvent.click(within(container.querySelector('.ck-drawer')!).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(g()).toBeNull());
+
+    rerender(board(views(), fake)); // server hasn't caught up: same revision, still hidden
+    expect(g()).toBeNull();
+    rerender(board(views().slice(1), fake)); // server dropped it
+    const reopened = views();
+    reopened[0] = { ...reopened[0]!, revision: 9, draftId: 'd:new', draft: { ...reopened[0]!.draft!, proposal: 'Fresh draft' } };
+    rerender(board(reopened, fake)); // runner reopened it later
+    expect(g()).toBeTruthy();
+  });
+
+  it('shows a key again when a newer revision arrives without the key ever leaving the list', async () => {
+    const fake = fakeActions();
+    const { container, rerender } = render(board(views(), fake));
+    const g = () => container.querySelector('[data-grave="a#1"]');
+    fireEvent.click(g()!);
+    fireEvent.click(within(container.querySelector('.ck-drawer')!).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(g()).toBeNull());
+
+    const reopened = views();
+    reopened[0] = { ...reopened[0]!, revision: 9, draftId: 'd:new', draft: { ...reopened[0]!.draft!, proposal: 'Fresh draft' } };
+    rerender(board(reopened, fake));
+    expect(g()).toBeTruthy();
+  });
+
+  it('drops edits when the haunt gets a new draft', () => {
+    const fake = fakeActions();
+    const { container, rerender } = render(board(views(), fake, { defaultOpenKey: 'a#1' }));
+    const box = () => within(container.querySelector('.ck-drawer')!).getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(box(), { target: { value: 'Old edit' } });
+    expect(box().value).toBe('Old edit');
+
+    const v = views();
+    v[0] = { ...v[0]!, revision: 7, draftId: 'd:replaced', draft: { ...v[0]!.draft!, proposal: 'Replacement draft' } };
+    rerender(board(v, fake, { defaultOpenKey: 'a#1' }));
+
+    expect(box().value).toBe('Replacement draft');
+  });
+
+  it('focuses Close when the drawer opens from a deep link', () => {
+    const { container } = render(board(views(), fakeActions(), { defaultOpenKey: 'a#2' }));
+    expect(document.activeElement).toBe(container.querySelector('.ck-drawer-close'));
+  });
+
+  it('closes the drawer and returns focus to the yard when its haunt disappears', () => {
+    const fake = fakeActions();
+    const { container, rerender } = render(board(views(), fake, { defaultOpenKey: 'a#2' }));
+    rerender(board(views().filter((v) => v.key !== 'a#2'), fake, { defaultOpenKey: 'a#2' }));
+    expect(container.querySelector('.ck-yard-root')!.getAttribute('data-open')).toBe('false');
+    expect(container.querySelector('.ck-yard')!.contains(document.activeElement)).toBe(true);
+  });
+
+  it('keeps focus in the open drawer when a refresh removes the focused button', () => {
+    const fake = fakeActions();
+    const v = views();
+    v[0] = { ...v[0]!, status: 'draft_failed', draft: null, draftId: null, error: 'Timed out.' };
+    const { container, rerender } = render(board(v, fake, { defaultOpenKey: 'a#1' }));
+    screen.getByRole('button', { name: /Try again/ }).focus();
+
+    rerender(board(views(), fake, { defaultOpenKey: 'a#1' })); // now drafted: Try again is gone
+
+    expect(container.querySelector('.ck-drawer')!.contains(document.activeElement)).toBe(true);
+  });
+
+  it('reports a failed request as unconfirmed, not as nothing changed', async () => {
+    const fake = fakeActions({
+      approve: async () => {
+        throw new Error('network');
+      },
+    });
+    const { container } = render(board(views(), fake, { defaultOpenKey: 'a#1' }));
+    fireEvent.click(within(container.querySelector('.ck-drawer')!).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/couldn’t confirm what happened/));
+    expect(screen.getByRole('alert').textContent).not.toMatch(/Nothing was changed/);
+  });
+
+  it('lets you spare a haunt while its redraft is in flight', async () => {
+    const fake = fakeActions({ redraft: () => new Promise(() => {}) });
+    const v = views();
+    v[0] = { ...v[0]!, status: 'draft_failed', draft: null, draftId: null, error: 'Timed out.' };
+    render(board(v, fake, { defaultOpenKey: 'a#1' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Try again/ }));
+    await waitFor(() => expect(fake.calls).toContainEqual(['redraft', 'a#1']));
+    const spare = screen.getByRole('button', { name: /Spare/ }) as HTMLButtonElement;
+    expect(spare.disabled).toBe(false);
+    fireEvent.click(spare);
+
+    await waitFor(() => expect(fake.calls).toContainEqual(['spare', 'a#1']));
+  });
+});
+
 describe('run button', () => {
   it('calls run and reports the result', async () => {
     const t = setup();

@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState, useTransition, type KeyboardEvent } from 'react';
-import { HauntDetail, type DraftEdits } from './detail.js';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { HauntDetail, type DraftEdits, type Pending } from './detail.js';
 import { Icon } from './icons.js';
 import { APPROVABLE, SPARABLE, StatusPill } from './status.js';
-import type { ActionOutcome, BoardActions, BoardCopy, Creature, HauntView } from './types.js';
+import type { ActionOutcome, BoardActions, Creature, HauntView, ResolvedCopy } from './types.js';
 
 export interface YardProps {
   views: HauntView[];
-  copy: BoardCopy;
+  copy: ResolvedCopy;
   creature: Creature;
   actions: BoardActions;
   /** Server time (ISO) for the first render, so settle locks match between server and client. */
@@ -41,23 +41,28 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   const [selectedKey, setSelectedKey] = useState<string | null>(() => defaultOpenKey ?? views[0]?.key ?? null);
   const [open, setOpen] = useState(() => defaultOpenKey !== null && views.some((v) => v.key === defaultOpenKey));
   const [leaving, setLeaving] = useState<ReadonlyMap<string, Leave>>(new Map());
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * Haunts this client finished acting on, by key, with the revision it acted on. They stay
+   * hidden only while the server still sends that same revision; once the server's list
+   * catches up (or the runner reopens the key with a newer revision) they show normally.
+   */
+  const [tombstones, setTombstones] = useState<ReadonlyMap<string, number>>(new Map());
+  /** Edits per draft (`draftId`), so they survive close/reopen but not a new draft. */
   const [edits, setEdits] = useState<Readonly<Record<string, DraftEdits>>>({});
   const [whyOpen, setWhyOpen] = useState<ReadonlySet<string>>(new Set());
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [pending, setPending] = useState<Readonly<Record<string, Pending>>>({});
   const [toast, setToast] = useState<Toast | null>(null);
   const [now, setNow] = useState(() => Date.parse(nowProp));
-  const [, startTransition] = useTransition();
 
   const rootRef = useRef<HTMLDivElement>(null);
-  /** What to focus after the next render: a grave key, '@close' or '@proposal'. */
-  const focusNext = useRef<string | null>(null);
+  /** What to focus after the next render: a grave key, '@close', '@proposal' or '@yard'. */
+  const focusNext = useRef<string | null>(open ? '@close' : null);
 
-  // Haunts the server still reports, minus ones this client has just finished acting on.
-  const items = views.filter((v) => !hidden.has(v.key));
+  const items = views.filter((v) => tombstones.get(v.key) !== v.revision);
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const selected = items.find((v) => v.key === selectedKey) ?? null;
+  const drawerOpen = open && selected !== null;
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
@@ -70,23 +75,44 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     return () => clearTimeout(id);
   }, [toast]);
 
+  // Forget tombstones the server no longer needs: the key is gone, or it came back newer.
+  useEffect(() => {
+    setTombstones((t) => {
+      if (!t.size) return t;
+      const current = new Map(views.map((v) => [v.key, v.revision]));
+      const next = new Map([...t].filter(([key, rev]) => current.get(key) === rev));
+      return next.size === t.size ? t : next;
+    });
+  }, [views]);
+
+  // The drawer's haunt went away (another session acted on it): close and land on the yard.
+  useEffect(() => {
+    if (open && !selected) {
+      setOpen(false);
+      focusNext.current = itemsRef.current[0]?.key ?? '@yard';
+    }
+  }, [open, selected]);
+
   // While the drawer is open, the header and HUD (rendered by the server) are inert too.
   useEffect(() => {
     const board = rootRef.current?.closest('.ck-board');
-    board?.querySelectorAll('[data-ck-backdrop]').forEach((el) => el.toggleAttribute('inert', open));
-  }, [open]);
+    board?.querySelectorAll('[data-ck-backdrop]').forEach((el) => el.toggleAttribute('inert', drawerOpen));
+  }, [drawerOpen]);
 
   useLayoutEffect(() => {
-    const target = focusNext.current;
     const root = rootRef.current;
-    if (!target || !root) return;
+    if (!root) return;
+    const q = (selector: string) => root.querySelector<HTMLElement>(selector);
+    const target = focusNext.current;
     focusNext.current = null;
-    const el =
-      target === '@proposal'
-        ? (root.querySelector<HTMLElement>('#ck-proposal') ?? root.querySelector<HTMLElement>('.ck-drawer-close'))
-        : target === '@close'
-          ? root.querySelector<HTMLElement>('.ck-drawer-close')
-          : (root.querySelector<HTMLElement>(`[data-grave="${attr(target)}"]`) ?? root.querySelector<HTMLElement>('.ck-yard'));
+    let el: HTMLElement | null = null;
+    if (target === '@proposal') el = q('#ck-proposal') ?? q('.ck-drawer-close');
+    else if (target === '@close') el = q('.ck-drawer-close');
+    else if (target === '@yard') el = q('.ck-yard');
+    else if (target) el = q(`[data-grave="${attr(target)}"]`) ?? q('.ck-yard');
+    // A refresh can remove the focused control (e.g. Try again): keep focus inside the modal.
+    const drawer = q('.ck-drawer');
+    if (!el && drawerOpen && drawer && !drawer.contains(document.activeElement)) el = q('.ck-drawer-close');
     el?.focus({ preventScroll: true });
   });
 
@@ -100,38 +126,59 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
 
   const closeDrawer = () => {
     setOpen(false);
-    focusNext.current = selectedKey;
+    focusNext.current = selectedKey ?? '@yard';
   };
 
-  /** The haunt that should be selected after `key` is removed. */
   const neighbourOf = (key: string): string | null => {
     const list = itemsRef.current;
     const i = list.findIndex((v) => v.key === key);
     return list[i + 1]?.key ?? list[i - 1]?.key ?? null;
   };
 
-  const run = (key: string, call: () => Promise<ActionOutcome>, after?: (res: ActionOutcome) => void) => {
-    setBusyKey(key);
-    startTransition(async () => {
+  const setPendingFor = (key: string, op: Pending) =>
+    setPending((p) => {
+      if (op === null) {
+        if (!(key in p)) return p;
+        const { [key]: _done, ...rest } = p;
+        return rest;
+      }
+      return { ...p, [key]: op };
+    });
+
+  /**
+   * Runs one server action for a haunt. A request that fails in transit (thrown) is
+   * reported as unconfirmed: the server may already have acted.
+   */
+  // Not wrapped in startTransition on purpose: React entangles pending async transitions,
+  // so one slow server action would hold back every other action's UI updates.
+  const run = (key: string, op: Exclude<Pending, null>, call: () => Promise<ActionOutcome>, after?: (res: ActionOutcome) => void) => {
+    setPendingFor(key, op);
+    void (async () => {
       let res: ActionOutcome;
       try {
         res = await call();
       } catch {
-        res = { ok: false, message: 'Something went wrong. Nothing was changed; try again.' };
+        res = { ok: false, message: copy.ui.unconfirmed };
       }
-      setBusyKey((b) => (b === key ? null : b));
+      setPending((p) => {
+        if (p[key] !== op) return p;
+        const { [key]: _done, ...rest } = p;
+        return rest;
+      });
       if (!res.ok) showToast(res.message, 'fail');
       after?.(res);
-    });
+    })();
   };
 
   const leave = (kind: Leave, key: string) => {
     const view = itemsRef.current.find((v) => v.key === key);
-    if (!view || leaving.has(key) || busyKey === key) return;
-    if (kind === 'approve' && !(APPROVABLE.includes(view.status) && view.draft)) return;
+    const busy = pending[key];
+    // A second approve/spare/settle on the same haunt waits; a redraft in flight may be spared.
+    if (!view || leaving.has(key) || busy === 'approve' || busy === 'spare' || busy === 'settle') return;
+    if (kind === 'approve' && (busy === 'redraft' || !(APPROVABLE.includes(view.status) && view.draft))) return;
     if (kind === 'spare' && !SPARABLE.includes(view.status)) return;
 
-    const edit = edits[key];
+    const edit = view.draftId ? edits[view.draftId] : undefined;
     const delay = motion === 'reduced' || prefersReducedMotion() ? 0 : LEAVE_MS;
     setOpen(false);
     setSelectedKey(key);
@@ -139,6 +186,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
 
     run(
       key,
+      kind,
       async () => {
         const [res] = await Promise.all([
           kind === 'approve'
@@ -162,7 +210,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
           return;
         }
         const next = neighbourOf(key);
-        setHidden((h) => new Set(h).add(key));
+        setTombstones((t) => new Map(t).set(key, view.revision));
         setSelectedKey((cur) => (cur === key ? next : cur));
         focusNext.current = next ?? '@yard';
         showToast(kind === 'approve' ? copy.approved : copy.spared);
@@ -173,7 +221,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const key = e.key.toLowerCase();
-    if (key === 'escape' && open) {
+    if (key === 'escape' && drawerOpen) {
       e.preventDefault();
       closeDrawer();
       return;
@@ -182,7 +230,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     if (target.closest('textarea, input, select')) return;
 
     // Shortcuts act on the focused grave when there is one; Tab alone never moves the selection.
-    const focusedKey = !open ? (target.closest<HTMLElement>('[data-grave]')?.dataset.grave ?? null) : null;
+    const focusedKey = !drawerOpen ? (target.closest<HTMLElement>('[data-grave]')?.dataset.grave ?? null) : null;
     const actOn = focusedKey ?? selectedKey;
 
     const move = (step: number) => {
@@ -194,8 +242,8 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
       focusNext.current = next;
     };
 
-    if (!open && (key === 'j' || key === 'arrowright')) return (e.preventDefault(), move(1));
-    if (!open && (key === 'k' || key === 'arrowleft')) return (e.preventDefault(), move(-1));
+    if (!drawerOpen && (key === 'j' || key === 'arrowright')) return (e.preventDefault(), move(1));
+    if (!drawerOpen && (key === 'k' || key === 'arrowleft')) return (e.preventDefault(), move(-1));
     if ((key === 'a' || key === 'r') && actOn) {
       e.preventDefault();
       if (e.repeat) return; // a held key must not act on one haunt after another
@@ -208,19 +256,19 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     }
   };
 
-  const onEdit = (key: string, change: DraftEdits) =>
+  const onEdit = (draftId: string, change: DraftEdits) =>
     setEdits((all) => ({
       ...all,
-      [key]: {
-        ...all[key],
+      [draftId]: {
+        ...all[draftId],
         ...(change.proposal !== undefined ? { proposal: change.proposal } : {}),
-        ...(change.options ? { options: { ...all[key]?.options, ...change.options } } : {}),
+        ...(change.options ? { options: { ...all[draftId]?.options, ...change.options } } : {}),
       },
     }));
 
   return (
-    <div className="ck-yard-root" ref={rootRef} data-open={open} onKeyDown={onKeyDown}>
-      <main className="ck-yard" inert={open} tabIndex={-1}>
+    <div className="ck-yard-root" ref={rootRef} data-open={drawerOpen} onKeyDown={onKeyDown}>
+      <main className="ck-yard" inert={drawerOpen} tabIndex={-1}>
         <ul className="ck-graves" aria-label="Haunts">
           {items.length ? (
             items.map((view) => (
@@ -244,19 +292,19 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
         </ul>
       </main>
       <div className="ck-scrim" onClick={closeDrawer} aria-hidden="true" />
-      <aside className="ck-drawer" role="dialog" aria-modal="true" aria-labelledby="ck-detail-title" inert={!open}>
-        <button className="ck-btn ck-btn-ghost ck-drawer-close" type="button" onClick={closeDrawer} aria-label="Close">
+      <aside className="ck-drawer" role="dialog" aria-modal="true" aria-labelledby="ck-detail-title" inert={!drawerOpen}>
+        <button className="ck-btn ck-btn-ghost ck-drawer-close" type="button" onClick={closeDrawer} aria-label={copy.ui.close}>
           <Icon name="x" />
         </button>
         {selected ? (
           <HauntDetail
             view={selected}
             copy={copy}
-            edits={edits[selected.key]}
+            edits={selected.draftId ? edits[selected.draftId] : undefined}
             whyOpen={whyOpen.has(selected.key)}
             now={now}
-            busy={busyKey === selected.key}
-            onEdit={(change) => onEdit(selected.key, change)}
+            pending={pending[selected.key] ?? null}
+            onEdit={(change) => selected.draftId && onEdit(selected.draftId, change)}
             onWhyToggle={(isOpen) =>
               setWhyOpen((s) => {
                 if (s.has(selected.key) === isOpen) return s;
@@ -268,12 +316,12 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
             }
             onApprove={() => leave('approve', selected.key)}
             onSpare={() => leave('spare', selected.key)}
-            onRedraft={() => run(selected.key, () => actions.redraft(selected.key))}
-            onSettle={(outcome) => run(selected.key, () => actions.settle(selected.key, outcome))}
+            onRedraft={() => run(selected.key, 'redraft', () => actions.redraft(selected.key))}
+            onSettle={(outcome) => run(selected.key, 'settle', () => actions.settle(selected.key, outcome))}
           />
         ) : null}
       </aside>
-      <div aria-live="polite" className="ck-sr-live">
+      <div aria-live="polite">
         {toast ? (
           <div className="ck-toast" data-tone={toast.tone} role={toast.tone === 'fail' ? 'alert' : 'status'}>
             <Icon name={toast.tone === 'fail' ? 'alert' : 'check'} />
@@ -287,7 +335,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
 
 interface GraveProps {
   view: HauntView;
-  copy: BoardCopy;
+  copy: ResolvedCopy;
   creature: Creature;
   selected: boolean;
   leaving: Leave | undefined;

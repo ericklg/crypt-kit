@@ -38,7 +38,7 @@ const theme = {
 };
 
 const v = (key, status, severity, title, meta, age, facts, extra = {}) => ({
-  key, status, severity, title, meta, age, url: `https://github.com/${key.replace('#', '/issues/')}`,
+  key, revision: 1, draftId: extra.draft ? key : null, status, severity, title, meta, age, url: `https://github.com/${key.replace('#', '/issues/')}`,
   facts: facts.map(([label, value]) => ({ label, value })), headline: null, draft: null, error: null, claimExpiresAt: null, ...extra,
 });
 

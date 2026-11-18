@@ -26,6 +26,26 @@ describe('toHauntView', () => {
     expect(json).not.toContain('version');
   });
 
+  it('falls back to updatedAt + settleAfterMs when an approving haunt has no stored deadline', () => {
+    const view = toHauntView(
+      sampleHaunt({ status: 'approving', claimExpiresAt: null, updatedAt: '2026-11-18T12:00:00.000Z' }),
+      { meta: () => '', age: () => '' },
+      { settleAfterMs: 10 * 60_000 },
+    );
+    expect(view.claimExpiresAt).toBe('2026-11-18T12:10:00.000Z');
+  });
+
+  it('gives each draft a stable id that changes with the draft', () => {
+    const p = { meta: () => '', age: () => '' };
+    const d = { summary: 's', proposal: 'p', reasoning: 'r', options: {} };
+    const a = toHauntView(sampleHaunt({ draft: d, version: 2 }), p);
+    const b = toHauntView(sampleHaunt({ draft: d, version: 5 }), p);
+    const c = toHauntView(sampleHaunt({ draft: { ...d, proposal: 'q' } }), p);
+    expect(a.draftId).toBe(b.draftId);
+    expect(a.draftId).not.toBe(c.draftId);
+    expect(a.revision).toBe(2);
+  });
+
   it('exposes claimExpiresAt for approving haunts', () => {
     const view = toHauntView(sampleHaunt({ status: 'approving', claimExpiresAt: '2026-11-18T12:00:00.000Z' }), {
       meta: () => '',

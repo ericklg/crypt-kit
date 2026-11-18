@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { resolveCopy } from './copy.js';
 import { Icon } from './icons.js';
 import { RunButton } from './run-button.js';
 import type { BoardActions, BoardTheme, HauntView, Palette } from './types.js';
@@ -31,7 +32,9 @@ export function paletteVars(palette: Palette): CSSProperties {
  * Import '@crypt-kit/board/board.css' once in the app.
  */
 export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultOpenKey }: BoardProps) {
-  const { copy, creature } = theme;
+  const { creature } = theme;
+  const copy = resolveCopy(theme.copy);
+  const { ui } = copy;
   const pct = weeklyGoal > 0 ? Math.min(100, Math.round((score / weeklyGoal) * 100)) : 0;
 
   return (
@@ -55,7 +58,7 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
             <b>{score}</b>
             <span>{copy.scoreLabel}</span>
           </div>
-          <RunButton label={copy.run} run={actions.run} />
+          <RunButton label={copy.run} ui={{ running: ui.running, runDone: ui.runDone, runFailed: ui.runFailed }} run={actions.run} />
         </div>
       </header>
 
@@ -63,7 +66,7 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
         <div className="ck-meter">
           <div className="ck-meter-top">
             <span>
-              <b>{score}</b> of {weeklyGoal} {copy.scoreLabel}
+              <b>{score}</b> {ui.of} {weeklyGoal} {copy.scoreLabel}
             </span>
             <span>
               {haunts.length} {copy.openLabel}
@@ -72,27 +75,27 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
           <div
             className="ck-bar"
             role="progressbar"
-            aria-label="Weekly goal"
+            aria-label={ui.weeklyGoal}
             aria-valuemin={0}
             aria-valuemax={weeklyGoal}
             aria-valuenow={Math.min(score, weeklyGoal)}
-            aria-valuetext={`${score} of ${weeklyGoal} ${copy.scoreLabel}${score > weeklyGoal ? ', goal reached' : ''}`}
+            aria-valuetext={`${score} ${ui.of} ${weeklyGoal} ${copy.scoreLabel}${score > weeklyGoal ? `, ${ui.goalReached}` : ''}`}
           >
             <span style={{ width: `${pct}%` }} />
           </div>
         </div>
-        <div className="ck-keys" aria-label="Keyboard shortcuts">
+        <div className="ck-keys" aria-label={ui.keysLabel}>
           <span>
-            <kbd>J</kbd> <kbd>K</kbd> move
+            <kbd>J</kbd> <kbd>K</kbd> {ui.keyMove}
           </span>
           <span>
-            <kbd>Enter</kbd> open
+            <kbd>Enter</kbd> {ui.keyOpen}
           </span>
           <span>
-            <kbd>A</kbd> approve
+            <kbd>A</kbd> {copy.approve.toLowerCase()}
           </span>
           <span>
-            <kbd>R</kbd> spare
+            <kbd>R</kbd> {copy.spare.toLowerCase()}
           </span>
         </div>
       </div>

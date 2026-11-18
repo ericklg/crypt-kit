@@ -1,21 +1,24 @@
+import { fill } from './copy.js';
 import { Icon } from './icons.js';
 import { APPROVABLE, SPARABLE, StatusPill } from './status.js';
-import type { BoardCopy, HauntView } from './types.js';
+import type { HauntView, ResolvedCopy } from './types.js';
 
 export interface DraftEdits {
   proposal?: string;
   options?: Record<string, boolean>;
 }
 
+/** The request in flight for a haunt, if any. */
+export type Pending = 'approve' | 'spare' | 'redraft' | 'settle' | null;
+
 export interface HauntDetailProps {
   view: HauntView;
-  copy: BoardCopy;
+  copy: ResolvedCopy;
   edits: DraftEdits | undefined;
   whyOpen: boolean;
   /** Current time in ms, for the settle unlock. */
   now: number;
-  /** True while an action for this haunt is in flight. */
-  busy: boolean;
+  pending: Pending;
   onEdit(edits: DraftEdits): void;
   onWhyToggle(open: boolean): void;
   onApprove(): void;
@@ -23,6 +26,9 @@ export interface HauntDetailProps {
   onRedraft(): void;
   onSettle(outcome: 'done' | 'not_done'): void;
 }
+
+/** Approve and spare are final; nothing else may start while one is in flight. */
+const isFinal = (p: Pending) => p === 'approve' || p === 'spare' || p === 'settle';
 
 /** The shared haunt detail shown in the drawer: facts, draft, and the actions its status allows. */
 export function HauntDetail(props: HauntDetailProps) {
@@ -63,16 +69,19 @@ export function HauntDetail(props: HauntDetailProps) {
   );
 }
 
-function SpareButton({ copy, onSpare, busy }: Pick<HauntDetailProps, 'copy' | 'onSpare' | 'busy'>) {
+function SpareButton({ copy, onSpare, pending }: Pick<HauntDetailProps, 'copy' | 'onSpare' | 'pending'>) {
+  // Sparing stays available during a redraft; the runner discards the late draft.
   return (
-    <button className="ck-btn" type="button" onClick={onSpare} disabled={busy}>
+    <button className="ck-btn" type="button" onClick={onSpare} disabled={isFinal(pending)}>
       <Icon name="x" /> {copy.spare} <kbd>R</kbd>
     </button>
   );
 }
 
 function DetailBody(props: HauntDetailProps) {
-  const { view, copy, busy } = props;
+  const { view, copy, pending } = props;
+  const { ui } = copy;
+  const words = { approve: copy.approve.toLowerCase(), spare: copy.spare.toLowerCase() };
 
   if (view.status === 'new') {
     return (
@@ -81,12 +90,14 @@ function DetailBody(props: HauntDetailProps) {
           <Icon name="clock" />
           <div>
             <strong>{copy.status.new}</strong>
-            <p>{copy.waiting} Nothing has been sent to the agent yet.</p>
+            <p>
+              {copy.waiting} {ui.waitingNote}
+            </p>
           </div>
         </div>
         <div className="ck-d-actions">
           {SPARABLE.includes(view.status) ? <SpareButton {...props} /> : null}
-          <span className="ck-hint">You can spare it before it’s drafted.</span>
+          <span className="ck-hint">{fill(ui.waitingHint, words)}</span>
         </div>
       </>
     );
@@ -96,14 +107,14 @@ function DetailBody(props: HauntDetailProps) {
     return (
       <>
         <div className="ck-d-label">
-          <Icon name="spark" /> Drafting
+          <Icon name="spark" /> {ui.drafting}
         </div>
         <div className="ck-skeleton" style={{ width: '92%' }} />
         <div className="ck-skeleton" style={{ width: '78%' }} />
         <div className="ck-skeleton" style={{ width: '60%' }} />
         <div className="ck-d-actions">
           <SpareButton {...props} />
-          <span className="ck-hint">You can spare it while the draft is written.</span>
+          <span className="ck-hint">{fill(ui.draftingHint, words)}</span>
         </div>
       </>
     );
@@ -115,13 +126,15 @@ function DetailBody(props: HauntDetailProps) {
         <div className="ck-notice" data-tone="fail">
           <Icon name="alert" />
           <div>
-            <strong>No draft this time</strong>
-            <p>{view.error} Nothing was sent anywhere.</p>
+            <strong>{ui.draftFailedTitle}</strong>
+            <p>
+              {view.error} {ui.draftFailedNote}
+            </p>
           </div>
         </div>
         <div className="ck-d-actions">
-          <button className="ck-btn ck-btn-primary" type="button" onClick={props.onRedraft} disabled={busy}>
-            <Icon name="refresh" /> Try again
+          <button className="ck-btn ck-btn-primary" type="button" onClick={props.onRedraft} disabled={pending !== null}>
+            <Icon name="refresh" /> {ui.tryAgain}
           </button>
           <SpareButton {...props} />
         </div>
@@ -130,19 +143,21 @@ function DetailBody(props: HauntDetailProps) {
   }
 
   if (view.status === 'approving') {
-    const unlocksAt = view.claimExpiresAt ? Date.parse(view.claimExpiresAt) : 0;
-    const locked = props.now < unlocksAt;
-    const minutes = Math.max(1, Math.ceil((unlocksAt - props.now) / 60_000));
+    // An unknown deadline stays locked: the runner would refuse an early settle anyway.
+    const unlocksAt = view.claimExpiresAt ? Date.parse(view.claimExpiresAt) : Number.POSITIVE_INFINITY;
+    const locked = !(props.now >= unlocksAt);
+    const hint = !locked
+      ? ui.unlocked
+      : Number.isFinite(unlocksAt)
+        ? fill(ui.unlocksIn, { minutes: Math.max(1, Math.ceil((unlocksAt - props.now) / 60_000)) })
+        : ui.unlockPending;
     return (
       <>
         <div className="ck-notice">
           <Icon name="clock" />
           <div>
-            <strong>This may already have happened</strong>
-            <p>
-              The {copy.approve.toLowerCase()} started but its result wasn’t saved. Check the source before doing
-              anything else, then record what you found.
-            </p>
+            <strong>{ui.stuckTitle}</strong>
+            <p>{fill(ui.stuckBody, words)}</p>
           </div>
         </div>
         <div className="ck-d-actions">
@@ -151,13 +166,13 @@ function DetailBody(props: HauntDetailProps) {
               <Icon name="external" /> {copy.sourceLabel}
             </a>
           ) : null}
-          <button className="ck-btn" type="button" disabled={locked || busy} onClick={() => props.onSettle('done')}>
-            <Icon name="check" /> It happened
+          <button className="ck-btn" type="button" disabled={locked || pending !== null} onClick={() => props.onSettle('done')}>
+            <Icon name="check" /> {ui.happened}
           </button>
-          <button className="ck-btn" type="button" disabled={locked || busy} onClick={() => props.onSettle('not_done')}>
-            <Icon name="x" /> It didn’t
+          <button className="ck-btn" type="button" disabled={locked || pending !== null} onClick={() => props.onSettle('not_done')}>
+            <Icon name="x" /> {ui.didntHappen}
           </button>
-          <span className="ck-hint">{locked ? `Unlocks in ${minutes} min` : 'You can record it now.'}</span>
+          <span className="ck-hint">{hint}</span>
         </div>
       </>
     );
@@ -176,12 +191,14 @@ function DetailBody(props: HauntDetailProps) {
           <Icon name="alert" />
           <div>
             <strong>{copy.actionFailedTitle}</strong>
-            <p>{view.error} The draft is kept, so you can fix the cause and try again.</p>
+            <p>
+              {view.error} {ui.actionFailedNote}
+            </p>
           </div>
         </div>
       ) : null}
       <div className="ck-d-label">
-        <Icon name="spark" /> What the agent found
+        <Icon name="spark" /> {ui.found}
       </div>
       <p className="ck-d-summary">{draft.summary}</p>
       <label className="ck-d-label" htmlFor="ck-proposal">
@@ -196,23 +213,18 @@ function DetailBody(props: HauntDetailProps) {
       />
       {Object.entries(options).map(([name, checked]) => (
         <label className="ck-toggle" key={name}>
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={(e) => props.onEdit({ options: { [name]: e.target.checked } })}
-          />{' '}
+          <input type="checkbox" checked={checked} onChange={(e) => props.onEdit({ options: { [name]: e.target.checked } })} />{' '}
           {copy.optionLabels[name] ?? name}
         </label>
       ))}
       <details className="ck-d-why" open={props.whyOpen} onToggle={(e) => props.onWhyToggle(e.currentTarget.open)}>
-        <summary>Why this draft</summary>
+        <summary>{ui.why}</summary>
         <p>{draft.reasoning}</p>
       </details>
       <div className="ck-d-actions">
         {APPROVABLE.includes(view.status) ? (
-          <button className="ck-btn ck-btn-primary" type="button" onClick={props.onApprove} disabled={busy}>
-            <Icon name={failed ? 'refresh' : 'check'} /> {failed ? `Try ${copy.approve.toLowerCase()} again` : copy.approve}{' '}
-            <kbd>A</kbd>
+          <button className="ck-btn ck-btn-primary" type="button" onClick={props.onApprove} disabled={pending !== null}>
+            <Icon name={failed ? 'refresh' : 'check'} /> {failed ? fill(ui.tryApproveAgain, words) : copy.approve} <kbd>A</kbd>
           </button>
         ) : null}
         <SpareButton {...props} />

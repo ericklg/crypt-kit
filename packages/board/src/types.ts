@@ -53,7 +53,50 @@ export interface BoardCopy {
   status: Record<HauntStatus, string>;
   /** Labels for the draft's yes/no options, by option key. */
   optionLabels: Record<string, string>;
+  /** Any of the board's built-in interface text, overriding `DEFAULT_UI_COPY`. */
+  ui?: Partial<UiCopy>;
 }
+
+/**
+ * The board's built-in interface text. `{approve}`, `{spare}` and `{minutes}` are filled in.
+ * Every string the board renders comes from here or from `BoardCopy`.
+ */
+export interface UiCopy {
+  keysLabel: string;
+  keyMove: string;
+  keyOpen: string;
+  weeklyGoal: string;
+  /** "{score} of {goal} {scoreLabel}" with ", goal reached" appended when over. */
+  goalReached: string;
+  of: string;
+  close: string;
+  found: string;
+  why: string;
+  drafting: string;
+  draftingHint: string;
+  waitingHint: string;
+  waitingNote: string;
+  draftFailedTitle: string;
+  draftFailedNote: string;
+  tryAgain: string;
+  tryApproveAgain: string;
+  actionFailedNote: string;
+  stuckTitle: string;
+  stuckBody: string;
+  happened: string;
+  didntHappen: string;
+  unlocksIn: string;
+  unlockPending: string;
+  unlocked: string;
+  running: string;
+  runDone: string;
+  runFailed: string;
+  /** Shown when a request fails in transit: the server may or may not have acted. */
+  unconfirmed: string;
+}
+
+/** BoardCopy with every UI string resolved, as the client components receive it. */
+export type ResolvedCopy = Omit<BoardCopy, 'ui'> & { ui: UiCopy };
 
 /** The theme contract: the only way an app restyles the board (see .kiro/steering/ui.md). */
 export interface BoardTheme {
@@ -77,6 +120,10 @@ export interface HauntFact {
  */
 export interface HauntView {
   key: string;
+  /** The haunt's version. A key that comes back after being acted on has a newer one. */
+  revision: number;
+  /** Changes whenever the agent writes a new draft; edits are kept per draft. Null without a draft. */
+  draftId: string | null;
   status: HauntStatus;
   severity: Severity;
   title: string;
@@ -90,7 +137,10 @@ export interface HauntView {
   headline: { value: string; was?: string } | null;
   draft: { summary: string; proposal: string; reasoning: string; options: Record<string, boolean> } | null;
   error: string | null;
-  /** For `approving` haunts: when settling unlocks (ISO). */
+  /**
+   * For `approving` haunts: when settling unlocks (ISO), resolved the same way the runner
+   * does. Null means unknown, and the board keeps settling locked.
+   */
   claimExpiresAt: string | null;
 }
 

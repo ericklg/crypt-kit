@@ -23,10 +23,15 @@ export const theme: BoardTheme = {
   },
 };
 
-const base = { severity: 'medium' as const, facts: [], headline: null, error: null, claimExpiresAt: null, url: 'https://github.com/acme/lantern/issues/1' };
+const base = { revision: 3, draftId: null, severity: 'medium' as const, facts: [], headline: null, error: null, claimExpiresAt: null, url: 'https://github.com/acme/lantern/issues/1' };
 const draft = (proposal: string, close = false) => ({ summary: `Summary for ${proposal}`, proposal, reasoning: 'Because.', options: { close } });
 
 export function views(): HauntView[] {
+  // Each draft gets an id derived from its proposal, like toHauntView's hash.
+  return rawViews().map((v) => ({ ...v, draftId: v.draft ? `d:${v.draft.proposal}` : null }));
+}
+
+function rawViews(): HauntView[] {
   return [
     { ...base, key: 'a#1', status: 'drafted', title: 'Crash on empty config', meta: 'acme/lantern · issue #1', age: '41 days quiet', draft: draft('Comment one') },
     { ...base, key: 'a#2', status: 'drafted', title: 'Wrong flag in docs', meta: 'acme/lantern · issue #2', age: '63 days quiet', draft: draft('Comment two', true) },
