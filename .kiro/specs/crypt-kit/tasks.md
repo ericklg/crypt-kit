@@ -31,10 +31,10 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - [x] 5.1 2-3 distinct board mockups per app as HTML; pick one each. Three layouts, each in both themes, in `mockups/board/board-mockups.html`. Chosen: **B · Graveyard** for both apps (Nov 17).
   - _Requirements: R5.6_
 
-- [ ] 6. Board components (Nov 21-23)
-  - [ ] 6.1 Theme contract, haunt list/card, draft editor, counter + weekly score
-  - [ ] 6.2 Enter/banish motion, reduced-motion fallback, keyboard shortcuts, AA contrast
-  - [ ] 6.3 Server components by default; client only for interactive parts
+- [x] 6. Board components (Nov 21-23)
+  - [x] 6.1 Theme contract, haunt list/card, draft editor, counter + weekly score
+  - [x] 6.2 Enter/banish motion, reduced-motion fallback, keyboard shortcuts, AA contrast
+  - [x] 6.3 Server components by default; client only for interactive parts
   - _Requirements: R5_
 
 - [ ] 7. Exorcist app (Nov 23-25)
