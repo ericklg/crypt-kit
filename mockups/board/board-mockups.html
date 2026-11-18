@@ -138,7 +138,7 @@ kbd { font: 500 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; b
 .vb .grave.leave-approve { opacity: 0; transform: translateY(-60px) scale(.92); filter: blur(10px); }
 .vb .grave.leave-spare { opacity: 0; transform: translateY(30px) scale(.96); filter: grayscale(1); }
 .vb .scrim { position: fixed; inset: 42px 0 0 0; background: rgb(0 0 0 / .45); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 30; }
-.vb .drawer { position: fixed; top: 42px; right: 0; bottom: 0; width: min(640px, 100%); z-index: 31; background: var(--bg2); border-left: 1px solid var(--line); box-shadow: -30px 0 60px -30px #000; padding: 28px 34px 40px; overflow-y: auto; transform: translateX(100%); transition: transform .28s cubic-bezier(.2,.8,.2,1); }
+.vb .drawer { position: fixed; top: 42px; right: 0; bottom: 0; width: min(640px, 100%); z-index: 31; background: var(--bg2); border-left: 1px solid var(--line); box-shadow: -30px 0 60px -30px #000; padding: 28px 34px 40px; overflow-y: auto; transform: translateX(100%); }
 .vb.open .drawer { transform: none; } .vb.open .scrim { opacity: 1; pointer-events: auto; }
 .vb .drawer .close { position: absolute; top: 18px; right: 18px; width: 40px; padding: 0; justify-content: center; }
 
@@ -296,25 +296,25 @@ function detail(h) {
     <p class="d-meta"><span>${esc(h.meta)}</span><span>·</span><span>${esc(h.age)}</span><a class="link" href="#" data-act="noop">${icon('external')}${t.sourceLabel}</a></p>${facts(h)}`;
   if (h.status === 'drafting') return `${head}<div class="d-label">${icon('spark')} Drafting</div>
     <div class="skeleton" style="width:92%"></div><div class="skeleton" style="width:78%"></div><div class="skeleton" style="width:60%"></div>
-    <div class="d-actions"><button class="btn" type="button" data-act="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">You can spare it while the draft is written.</span></div>`;
+    <div class="d-actions"><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">You can spare it while the draft is written.</span></div>`;
   if (h.status === 'draft_failed') return `${head}<div class="notice fail">${icon('alert')}<div><strong>No draft this time</strong><p>${esc(h.error)} Nothing was sent anywhere.</p></div></div>
-    <div class="d-actions"><button class="btn primary" type="button" data-act="redraft">${icon('refresh')} Try again</button><button class="btn" type="button" data-act="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button></div>`;
+    <div class="d-actions"><button class="btn primary" type="button" data-act="redraft" data-fk="redraft">${icon('refresh')} Try again</button><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button></div>`;
   if (h.status === 'approving') return `${head}<div class="notice">${icon('clock')}<div><strong>This may already have happened</strong>
     <p>The ${t.approve.toLowerCase()} started but its result wasn’t saved. Check the source before doing anything else. You can record what you find after ${h.unlocksAt}.</p></div></div>
     <div class="d-actions"><a class="btn" href="#" data-act="noop">${icon('external')} ${t.sourceLabel}</a><button class="btn" type="button" disabled>${icon('check')} It happened</button><button class="btn" type="button" disabled>${icon('x')} It didn’t</button><span class="hint">Unlocks at ${h.unlocksAt}</span></div>`;
   if (h.status === 'new') return `${head}<div class="notice">${icon('clock')}<div><strong>Waiting for a draft</strong>
     <p>${esc(h.waiting)} Nothing has been sent to the agent yet.</p></div></div>
-    <div class="d-actions"><button class="btn" type="button" data-act="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">You can spare it before it’s drafted.</span></div>`;
+    <div class="d-actions"><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">You can spare it before it’s drafted.</span></div>`;
   // Edits are saved into the haunt as you type (see the input handler), so they survive a re-render.
-  const opts = Object.entries(h.options ?? {}).map(([k, v]) => `<label class="toggle"><input type="checkbox" data-opt="${esc(k)}" ${v ? 'checked' : ''}> ${esc(t.optionLabels[k] ?? k)}</label>`).join('');
+  const opts = Object.entries(h.options ?? {}).map(([k, v]) => `<label class="toggle"><input type="checkbox" data-opt="${esc(k)}" data-fk="opt-${esc(k)}" ${v ? 'checked' : ''}> ${esc(t.optionLabels[k] ?? k)}</label>`).join('');
   const failed = h.status === 'action_failed'
     ? `<div class="notice fail">${icon('alert')}<div><strong>${esc(t.actionFailedTitle)}</strong><p>${esc(h.error)} The draft is kept, so you can fix the cause and try again.</p></div></div>`
     : '';
   const approveLabel = h.status === 'action_failed' ? `${icon('refresh')} Try ${t.approve.toLowerCase()} again` : `${icon('check')} ${t.approve}`;
   return `${head}${failed}<div class="d-label">${icon('spark')} What the agent found</div><p class="d-summary">${esc(h.summary)}</p>
-    <label class="d-label" for="proposal">${t.proposalLabel} <kbd>E</kbd></label><textarea id="proposal" class="d-proposal" rows="5">${esc(h.proposal)}</textarea>${opts}
+    <label class="d-label" for="proposal">${t.proposalLabel} <kbd>E</kbd></label><textarea id="proposal" class="d-proposal" data-fk="proposal" rows="5">${esc(h.proposal)}</textarea>${opts}
     <details class="d-why"><summary>Why this draft</summary><p>${esc(h.reasoning)}</p></details>
-    <div class="d-actions"><button class="btn primary" type="button" data-act="approve">${approveLabel} <kbd>A</kbd></button><button class="btn" type="button" data-act="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">${t.approveHint}</span></div>`;
+    <div class="d-actions"><button class="btn primary" type="button" data-act="approve" data-fk="approve">${approveLabel} <kbd>A</kbd></button><button class="btn" type="button" data-act="spare" data-fk="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">${t.approveHint}</span></div>`;
 }
 
 function toast(msg) {
@@ -358,20 +358,42 @@ function openFromUrl() {
  * keep their place even though the markup is rebuilt.
  */
 function render(animate = false) {
-  const fk = document.activeElement?.closest?.('[data-fk]')?.dataset.fk;
+  const active = document.activeElement;
+  const fk = active?.closest?.('[data-fk]')?.dataset.fk;
+  const caret = active?.id === 'proposal' ? [active.selectionStart, active.selectionEnd, active.scrollTop] : null;
   draw(animate);
-  if (fk) document.querySelector(`[data-fk="${CSS.escape(fk)}"]`)?.focus({ preventScroll: true });
+  if (!fk) return;
+  const same = document.querySelector(`[data-fk="${CSS.escape(fk)}"]`);
+  const target = same && !same.closest('[inert]') ? same : fallbackFocus(fk);
+  target?.focus({ preventScroll: true });
+  if (caret && target?.id === 'proposal') {
+    target.setSelectionRange(caret[0], caret[1]);
+    target.scrollTop = caret[2];
+  }
+}
+
+/**
+ * Where focus goes when the focused control no longer exists (e.g. an acted-on grave, or
+ * a Try again button that turned into an editor): stay in the drawer if it's open,
+ * otherwise the selected item, otherwise the board's run button.
+ */
+function fallbackFocus(fk) {
+  const pick = (sel) => document.querySelector(sel);
+  if ($view.classList.contains('open')) return pick('.drawer [data-fk="proposal"]') || pick('.drawer [data-fk="close"]');
+  if (view === 'b') return $view.querySelectorAll('.grave')[sel] || pick('[data-fk="summon"]');
+  if (view === 'a') return pick('[data-fk="listbox"]') || pick('[data-fk="summon"]');
+  return pick('[data-fk="next"]') || pick('[data-fk="summon"]');
 }
 
 function draw(animate) {
   document.getElementById('mockbar').innerHTML = `<strong>Crypt Kit board mockups</strong>
-    <div class="seg" role="group" aria-label="Layout">${Object.entries(VIEWS).map(([k, l]) => `<button type="button" data-view="${k}" aria-pressed="${k === view}">${l}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="Layout">${Object.entries(VIEWS).map(([k, l]) => `<button type="button" data-view="${k}" data-fk="view-${k}" aria-pressed="${k === view}">${l}</button>`).join('')}</div>
     <span class="spacer"></span><span>App theme</span>
-    <div class="seg" role="group" aria-label="App theme">${Object.values(THEMES).map((x) => `<button type="button" data-theme-btn="${x.id}" aria-pressed="${x.id === themeId}">${x.name}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="App theme">${Object.values(THEMES).map((x) => `<button type="button" data-theme-btn="${x.id}" data-fk="theme-${x.id}" aria-pressed="${x.id === themeId}">${x.name}</button>`).join('')}</div>
     <div class="seg"><button type="button" class="shortcuts" data-fk="shortcuts" data-shortcuts aria-pressed="${shortcutsOn}" title="Single-key shortcuts (A, R, E, J, K)">Shortcuts ${shortcutsOn ? 'on' : 'off'}</button></div>`;
   document.getElementById('head').innerHTML = `<div class="brand"><div class="brand-mark">${icon(t.creature, 'i-lg')}</div><div><div class="brand-name">${esc(t.name)}</div><div class="brand-sub">${esc(t.sub)}</div></div></div>
     <div class="stats"><div class="stat accent"><b>${items.length}</b><span>${t.openLabel}</span></div><div class="stat"><b>${t.score}</b><span>${t.scoreLabel}</span></div>
-    <button class="btn" type="button" data-act="summon">${icon('wand')} ${t.summon}</button></div>`;
+    <button class="btn" type="button" data-act="summon" data-fk="summon">${icon('wand')} ${t.summon}</button></div>`;
   ({ a: renderA, b: renderB, c: renderC })[view](animate);
 }
 
@@ -389,7 +411,7 @@ function renderB() {
   const price = (h) => { const n = h.facts?.find((f) => f.label === 'Now'), w = h.facts?.find((f) => f.label === 'Was'); return n ? `<p class="g-price">${n.value}${w ? `<s>${w.value}</s>` : ''}</p>` : ''; };
   const wasOpen = $view.classList.contains('open');
   $view.innerHTML = `<div class="hud"><div class="meter"><div class="meter-top"><span><b>${t.score}</b> of ${t.weeklyGoal} ${t.scoreLabel}</span><span>${items.length} ${t.openLabel}</span></div>
-      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.weeklyGoal}" aria-valuenow="${t.score}"><span style="width:${pct}%"></span></div></div>
+      <div class="bar" role="progressbar" aria-label="Weekly goal" aria-valuemin="0" aria-valuemax="${t.weeklyGoal}" aria-valuenow="${Math.min(t.score, t.weeklyGoal)}" aria-valuetext="${t.score} of ${t.weeklyGoal} ${t.scoreLabel}${t.score > t.weeklyGoal ? ', goal reached' : ''}"><span style="width:${pct}%"></span></div></div>
       <div class="keys"><span><kbd>J</kbd> <kbd>K</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>A</kbd> approve</span><span><kbd>R</kbd> spare</span></div></div>
     <main class="yard"><ul class="graves" aria-label="Haunts">${items.length ? items.map((h, i) => `<li class="grave ${i === sel ? 'sel' : ''}" data-i="${i}" data-fk="grave-${h.id}" data-status="${h.status}" tabindex="0" role="button" aria-haspopup="dialog" aria-label="${esc(h.title)}, ${t.status[h.status][1]}">
       <span class="spirit">${icon(t.creature, 'i-lg')}</span><h3>${esc(h.title)}</h3><p class="g-meta">${esc(h.meta)}<br>${esc(h.age)}</p>${price(h)}${pill(h)}</li>`).join('') : `<li style="grid-column:1/-1">${emptyState()}</li>`}</ul></main>
@@ -431,9 +453,16 @@ function select(i, animate = true) {
   if (view === 'b') $view.querySelectorAll('.grave')[sel]?.focus();
 }
 const openDrawer = (i) => {
+  // Render the new content into the still-closed drawer, let it lay out off-screen,
+  // then open that same element, so it slides in instead of appearing in place.
+  const wasOpen = $view.classList.contains('open');
   sel = i;
-  $view.classList.add('open');
   render();
+  if (!wasOpen) {
+    $view.querySelector('.drawer')?.getBoundingClientRect();
+    $view.classList.add('open');
+    syncDrawer();
+  }
   $view.querySelector('.drawer .close')?.focus();
 };
 const closeDrawer = () => {
@@ -511,12 +540,13 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.target.closest('textarea, input')) { if (e.key === 'Escape') e.target.blur(); return; }
   const key = e.key.toLowerCase();
   const drawerOpen = $view.classList.contains('open');
+  // Escape closes the open drawer from anywhere inside it, including the editor.
+  if (key === 'escape' && drawerOpen) { e.preventDefault(); return closeDrawer(); }
+  if (e.target.closest('textarea, input')) { if (key === 'escape') e.target.blur(); return; }
 
   // Standard keys that always work, whatever the shortcut setting.
-  if (key === 'escape' && drawerOpen) { e.preventDefault(); return closeDrawer(); }
   const grave = e.target.closest?.('.grave');
   if (grave && (key === 'enter' || key === ' ')) { e.preventDefault(); return openDrawer(Number(grave.dataset.i)); }
   if (e.target.closest?.('[role="listbox"]')) {
