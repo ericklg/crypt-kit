@@ -573,9 +573,11 @@ document.addEventListener('keydown', (e) => {
       render();
     }
   };
+  const from = () => (grave && !drawerOpen ? Number(grave.dataset.i) : sel);
   const handlers = {
-    j: () => !drawerOpen && select(sel + 1), k: () => !drawerOpen && select(sel - 1),
-    arrowright: () => view === 'b' && !drawerOpen && select(sel + 1), arrowleft: () => view === 'b' && !drawerOpen && select(sel - 1),
+    // Move from the focused grave when one has focus (Tab doesn't change the selection).
+    j: () => !drawerOpen && select(from() + 1), k: () => !drawerOpen && select(from() - 1),
+    arrowright: () => view === 'b' && !drawerOpen && select(from() + 1), arrowleft: () => view === 'b' && !drawerOpen && select(from() - 1),
     a: () => { targetFocused(); resolve('approve'); },
     r: () => { targetFocused(); resolve('spare'); },
     e: () => { targetFocused(); if (view === 'b' && !drawerOpen) openDrawer(sel); setTimeout(() => document.getElementById('proposal')?.focus(), 60); },
