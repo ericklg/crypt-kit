@@ -53,6 +53,8 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   const [selectedKey, setSelectedKey] = useState<string | null>(() => defaultOpenKey ?? views[0]?.key ?? null);
   const [open, setOpen] = useState(() => defaultOpenKey !== null && views.some((v) => v.key === defaultOpenKey));
   const [leaving, setLeaving] = useState<ReadonlyMap<string, Leave>>(new Map());
+  const leavingRef = useRef(leaving);
+  leavingRef.current = leaving;
   /**
    * Haunts this client finished acting on, by key, with the revision it acted on. They stay
    * hidden only while the server still sends that same revision; once the server's list
@@ -62,7 +64,8 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   /** Edits per haunt and draft (`editKey`), so they survive close/reopen but not a new draft. */
   const [edits, setEdits] = useState<Readonly<Record<string, DraftEdits>>>({});
   const [whyOpen, setWhyOpen] = useState<ReadonlySet<string>>(new Set());
-  const [pending, setPending] = useState<Readonly<Record<string, Pending>>>({});
+  /** In-flight op per key. A Map, since finding keys are arbitrary strings ("toString"). */
+  const [pending, setPending] = useState<ReadonlyMap<string, Exclude<Pending, null>>>(new Map());
   const [toast, setToast] = useState<Toast | null>(null);
   const [now, setNow] = useState(() => Date.parse(nowProp));
 
@@ -159,21 +162,12 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     focusNext.current = selectedKey ?? '@yard';
   };
 
+  /** The nearest stone after (else before) `key` that isn't itself on its way out. */
   const neighbourOf = (key: string): string | null => {
-    const list = itemsRef.current;
+    const list = itemsRef.current.filter((v) => v.key === key || !leavingRef.current.has(v.key));
     const i = list.findIndex((v) => v.key === key);
     return list[i + 1]?.key ?? list[i - 1]?.key ?? null;
   };
-
-  const setPendingFor = (key: string, op: Pending) =>
-    setPending((p) => {
-      if (op === null) {
-        if (!(key in p)) return p;
-        const { [key]: _done, ...rest } = p;
-        return rest;
-      }
-      return { ...p, [key]: op };
-    });
 
   /**
    * Runs one server action for a haunt. A request that fails in transit (thrown) is
@@ -182,7 +176,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   // Not wrapped in startTransition on purpose: React entangles pending async transitions,
   // so one slow server action would hold back every other action's UI updates.
   const run = (key: string, op: Exclude<Pending, null>, call: () => Promise<ActionOutcome>, after?: (res: ActionOutcome) => void) => {
-    setPendingFor(key, op);
+    setPending((p) => new Map(p).set(key, op));
     const startedIn = epochs.current.get(key) ?? 0;
     void (async () => {
       let res: ActionOutcome;
@@ -192,9 +186,10 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
         res = { ok: false, message: copy.ui.unconfirmed };
       }
       setPending((p) => {
-        if (p[key] !== op) return p;
-        const { [key]: _done, ...rest } = p;
-        return rest;
+        if (p.get(key) !== op) return p;
+        const next = new Map(p);
+        next.delete(key);
+        return next;
       });
       // A final op that succeeded while this request was in flight (e.g. Spare during a
       // redraft) supersedes it: its expected conflict is not news to the user.
@@ -207,7 +202,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
 
   const leave = (kind: Leave, key: string) => {
     const view = itemsRef.current.find((v) => v.key === key);
-    const busy = pending[key];
+    const busy = pending.get(key);
     // A second approve/spare/settle on the same haunt waits; a redraft in flight may be spared.
     if (!view || leaving.has(key) || busy === 'approve' || busy === 'spare' || busy === 'settle') return;
     if (kind === 'approve' && (busy === 'redraft' || !(APPROVABLE.includes(view.status) && view.draft))) return;
@@ -368,7 +363,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
             edits={selectedEditKey ? edits[selectedEditKey] : undefined}
             whyOpen={whyOpen.has(selected.key)}
             now={now}
-            pending={pending[selected.key] ?? null}
+            pending={pending.get(selected.key) ?? null}
             onEdit={(change) => selectedEditKey && onEdit(selectedEditKey, change)}
             onWhyToggle={(isOpen) =>
               setWhyOpen((s) => {

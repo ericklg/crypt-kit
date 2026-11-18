@@ -552,3 +552,31 @@ describe('review round 3', () => {
     expect(document.activeElement).toBe(graveOf(container, 'a#3'));
   });
 });
+
+describe('review round 5', () => {
+  const graveOf = (c: HTMLElement, key: string) =>
+    [...c.querySelectorAll<HTMLElement>('[data-grave]')].find((el) => el.dataset.grave === key) ?? null;
+
+  it.each(['toString', '__proto__', 'constructor'])('treats a haunt keyed %s like any other', async (key) => {
+    const v = views();
+    v[0] = { ...v[0]!, key };
+    const fake = fakeActions();
+    const { container } = render(<Board theme={theme} haunts={v} score={0} weeklyGoal={20} actions={fake.actions} now={NOW} defaultOpenKey={key} />);
+    const banish = within(container.querySelector<HTMLElement>('.ck-drawer')!).getByRole('button', { name: /Banish/ }) as HTMLButtonElement;
+    expect(banish.disabled).toBe(false);
+    fireEvent.click(banish);
+    await waitFor(() => expect(fake.calls.some((c) => c[0] === 'approve' && c[1] === key)).toBe(true));
+  });
+
+  it('does not park focus on a stone that is itself leaving', async () => {
+    const fake = fakeActions({ approve: () => new Promise(() => {}) });
+    const { container } = render(<Board theme={theme} haunts={views().slice(0, 3)} score={0} weeklyGoal={20} actions={fake.actions} now={NOW} />);
+
+    fireEvent.click(graveOf(container, 'a#2')!);
+    fireEvent.click(within(container.querySelector<HTMLElement>('.ck-drawer')!).getByRole('button', { name: /Banish/ }));
+    expect(document.activeElement).toBe(graveOf(container, 'a#3'));
+
+    fireEvent.keyDown(graveOf(container, 'a#3')!, { key: 'a' });
+    expect(document.activeElement).toBe(graveOf(container, 'a#1')); // not a#2, which is fading out
+  });
+});
