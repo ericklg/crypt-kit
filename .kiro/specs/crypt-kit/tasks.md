@@ -38,9 +38,9 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - _Requirements: R5_
 
 - [ ] 7. Exorcist app (Nov 23-25)
-  - [ ] 7.1 GitHub stale detector + fixtures + contract test
-  - [ ] 7.2 Triage prompt, comment/close action, sandbox demo repo
-  - [ ] 7.3 Theme matched to the chosen mockup; BotID on action routes
+  - [x] 7.1 GitHub stale detector + fixtures + contract test
+  - [ ] 7.2 Triage prompt, comment/close action, sandbox demo repo (prompt and action done; sandbox repo pending)
+  - [x] 7.3 Theme matched to the chosen mockup; BotID on action routes
   - _Requirements: R6, R4_
 
 - [ ] 8. Price Poltergeist app (Nov 25-27)

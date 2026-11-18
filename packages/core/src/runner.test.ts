@@ -639,6 +639,139 @@ describe('spare', () => {
     expect(t.draft).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps an approved haunt closed when its payload changes, by default', async () => {
+    const t = setup();
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    await t.runner.approve('a');
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approved');
+  });
+
+  it('reopens an approved haunt whose payload changed when reopenApprovedOnChange is on', async () => {
+    const t = setup({ reopenApprovedOnChange: true });
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    await t.runner.approve('a');
+
+    t.setFindings([finding('a', 1)]); // same payload: stays approved
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approved');
+
+    t.setFindings([]); // got activity, no longer reported
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approved');
+
+    t.setFindings([finding('a', 2)]); // stale again, with new activity
+    const report = await t.runner.run();
+    expect(report).toMatchObject({ reopened: 1, drafted: 1 });
+    expect(await t.store.get('a')).toMatchObject({ status: 'drafted', result: null });
+  });
+
+  it('does not let a slow poll reopen an approval that finished after it started', async () => {
+    const t = setup({ reopenApprovedOnChange: true });
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+
+    let release!: () => void;
+    t.setFindings(() => new Promise((r) => (release = () => r([finding('a', 2)]))));
+    const slow = t.runner.run();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect((await t.runner.approve('a')).ok).toBe(true);
+    release();
+    await slow;
+
+    expect(await t.store.get('a')).toMatchObject({ status: 'approved', result: { ok: true } });
+  });
+
+  it('never reopens an approval still in flight', async () => {
+    let release!: () => void;
+    const t = setup({ reopenApprovedOnChange: true });
+    t.actionRun.mockImplementationOnce(() => new Promise<ActionResult>((r) => (release = () => r({ ok: true, message: 'Done', url: null }))));
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    const approving = t.runner.approve('a');
+    await vi.waitFor(() => expect(t.actionRun).toHaveBeenCalled());
+
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.status).toBe('approving');
+    release();
+    expect((await approving).ok).toBe(true);
+    expect((await t.store.get('a'))?.status).toBe('approved');
+  });
+
+  it('drops a draft written for an older payload and drafts again', async () => {
+    const t = setup();
+    t.draft.mockImplementation(async (f) => ({ summary: 's', proposal: `For count ${f.payload.count}`, reasoning: 'r', options: { close: true } }));
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.draft?.proposal).toBe('For count 1');
+
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect(await t.store.get('a')).toMatchObject({ status: 'drafted', draft: { proposal: 'For count 2' } });
+    expect(t.draft).toHaveBeenCalledTimes(2);
+
+    t.setFindings([finding('a', 2)]); // unchanged: the draft stays
+    await t.runner.run();
+    expect(t.draft).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a failed approval’s draft when the item changes, so the old proposal can’t be retried', async () => {
+    const t = setup();
+    t.actionRun.mockResolvedValueOnce({ ok: false, error: 'GitHub returned 500' });
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+    await t.runner.approve('a');
+    expect((await t.store.get('a'))?.status).toBe('action_failed');
+
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect(await t.store.get('a')).toMatchObject({ status: 'drafted', error: null, result: null });
+  });
+
+  it('does not let a slow poll drop a result that landed after it started', async () => {
+    const t = setup();
+    t.actionRun.mockResolvedValueOnce({ ok: false, error: 'GitHub returned 500' });
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+
+    let release!: () => void;
+    t.setFindings(() => new Promise((r) => (release = () => r([finding('a', 2)]))));
+    const slow = t.runner.run();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    await t.runner.approve('a');
+    release();
+    await slow;
+
+    expect(await t.store.get('a')).toMatchObject({ status: 'action_failed', error: 'GitHub returned 500' });
+  });
+
+  it('still redrafts on the next run when a slow poll had to leave a newer draft alone', async () => {
+    const t = setup();
+    t.draft.mockImplementation(async (f) => ({ summary: 's', proposal: `For count ${f.payload.count}`, reasoning: 'r', options: { close: true } }));
+    t.setFindings([finding('a', 1)]);
+    await t.runner.run();
+
+    // A slow poll sees count 2, while a redraft of the count-1 item lands meanwhile.
+    let release!: () => void;
+    t.setFindings(() => new Promise((r) => (release = () => r([finding('a', 2)]))));
+    const slow = t.runner.run();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    await t.runner.redraft('a');
+    release();
+    await slow;
+    const kept = (await t.store.get('a'))!;
+    expect(kept.draft?.proposal).toBe('For count 1');
+    expect(kept.finding.payload).toEqual({ count: 1 }); // payload not overwritten next to the old draft
+
+    t.setFindings([finding('a', 2)]);
+    await t.runner.run();
+    expect((await t.store.get('a'))?.draft?.proposal).toBe('For count 2');
+  });
+
   it('redrafts a spared haunt when its payload changes', async () => {
     const t = setup();
     t.setFindings([finding('a', 1)]);

@@ -37,6 +37,12 @@ export interface RunnerOptions<P> {
    * The agent call is aborted shortly before then. Default 2 min.
    */
   draftClaimTimeoutMs?: number;
+  /**
+   * Reopen an `approved` haunt as `new` when a poll finds its payload changed. Off by
+   * default, because most keys name one event (a price, a version). Turn it on when a key
+   * names a long-lived item that can need acting on again, like a GitHub issue.
+   */
+  reopenApprovedOnChange?: boolean;
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
   log?: Logger;
@@ -114,6 +120,9 @@ export interface Runner<P> {
   list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
 }
 
+/** Open statuses whose draft (or failed draft) was written for one specific payload. */
+const DRAFT_HOLDING: readonly HauntStatus[] = ['drafted', 'draft_failed', 'action_failed'];
+
 const locksByStore = new WeakMap<TrackerStore, Set<string>>();
 const runsByStore = new WeakMap<TrackerStore, Map<string, Promise<RunReport>>>();
 
@@ -152,6 +161,7 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
   const actionTimeoutMs = options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
   const settleAfterMs = options.settleAfterMs ?? DEFAULT_SETTLE_AFTER_MS;
   const draftClaimTimeoutMs = options.draftClaimTimeoutMs ?? DEFAULT_DRAFT_CLAIM_TIMEOUT_MS;
+  const reopenApprovedOnChange = options.reopenApprovedOnChange ?? false;
 
   if (!Number.isInteger(maxDrafts) || maxDrafts < 0) {
     throw new RangeError('maxDraftsPerRun must be a non-negative integer');
@@ -395,6 +405,21 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           return;
         }
         const current = existing as Haunt<P>;
+        // A finished approval comes back as new when the app opts in and the item really
+        // changed (e.g. a thread that went stale again after the comment). Never while
+        // `approving`: that write would break the claim.
+        // An approval that landed after our poll started is newer than what we saw, so a
+        // slow poll can't undo it (same rule as resolving, below).
+        if (
+          reopenApprovedOnChange &&
+          current.status === 'approved' &&
+          current.payloadHash !== payloadHash &&
+          current.updatedAt < pollStartedAt
+        ) {
+          if (await write(current, freshHaunt(finding, payloadHash, at, current.firstSeenAt))) report.reopened++;
+          else report.conflicts++;
+          return;
+        }
         // Never rewrite an approval (claimed or done) or a draft claim someone still holds:
         // bumping the version would make their final write fail.
         if (current.status === 'approving' || current.status === 'approved' || liveClaim(current)) return;
@@ -406,6 +431,14 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
           // An abandoned draft claim: release it with the latest observation, so the
           // takeover drafts from the current payload, not the one the dead worker had.
           next = { ...refreshed, status: 'new', claimExpiresAt: null, error: null, updatedAt: at };
+        } else if (DRAFT_HOLDING.includes(current.status) && current.payloadHash !== payloadHash) {
+          // A draft or error written after our poll started is newer than our observation.
+          // Write nothing: saving our payload next to that draft would hide the change from
+          // every later poll. The next run compares again.
+          if (current.updatedAt >= pollStartedAt) return;
+          // A draft answers the payload it was written for. When the item changed, drop it
+          // and draft again, so nobody approves a proposal about an outdated item.
+          next = { ...refreshed, status: 'new', draft: null, result: null, error: null, updatedAt: at };
         } else if (current.status === 'spared' || current.status === 'resolved') {
           // A rejection sticks until the payload changes, even across a disappear/return (R4.3).
           if (current.sparedPayloadHash !== null && current.sparedPayloadHash === payloadHash) {
