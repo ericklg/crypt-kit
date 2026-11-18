@@ -42,13 +42,20 @@ noscript { display: block; padding: 40px; font-size: 18px; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 10px 28px -12px var(--accent); }
 .btn.ghost { background: transparent; }
 .btn[disabled] { opacity: .45; cursor: not-allowed; box-shadow: none; }
-kbd { font: 500 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; border: 1px solid currentColor; opacity: .65; }
+/* Full opacity: these 11px labels must keep AA contrast, including on the accent buttons. */
+kbd { font: 500 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; border: 1px solid currentColor; }
 .pill { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font: 600 12px/1 var(--font-body); padding: 6px 10px; border-radius: 999px; background: var(--surface2); color: var(--muted); }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.ready { color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 .pill.busy .dot { animation: pulse 1.2s ease-in-out infinite; }
 .pill.fail { color: var(--danger); background: color-mix(in oklab, var(--danger) 13%, transparent); }
 .pill.check { color: var(--warn); background: color-mix(in oklab, var(--warn) 13%, transparent); }
+.pill.wait { color: var(--muted); border: 1px dashed var(--line); background: transparent; }
+/* Status colours for the creature icons in every layout. */
+[data-status='draft_failed'], [data-status='action_failed'] { --status: var(--danger); }
+[data-status='approving'] { --status: var(--warn); }
+[data-status='new'] { --status: var(--muted); }
+.mockbar .seg button.shortcuts[aria-pressed='false'] { color: #ffb4a8; }
 .sev { font: 600 11px/1 var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); } .sev-high { color: var(--danger); } .sev-medium { color: var(--warn); }
 
 /* Haunt detail (shared by every layout) */
@@ -92,8 +99,8 @@ kbd { font: 500 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; b
 .va .row:hover { background: var(--surface); }
 .va .row[aria-selected='true'] { background: var(--surface); border-color: var(--line); box-shadow: inset 3px 0 0 var(--accent); }
 .va .row-icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: color-mix(in oklab, var(--accent) 10%, transparent); }
-.va .row[data-status='draft_failed'] .row-icon { color: var(--danger); }
-.va .row[data-status='approving'] .row-icon { color: var(--warn); }
+.va .row[data-status] .row-icon { color: var(--status, var(--accent)); }
+.va .rows:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 12px; }
 .va .row-main { min-width: 0; }
 .va .row-title { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .va .row-meta { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -121,7 +128,10 @@ kbd { font: 500 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; b
 .vb .grave:hover, .vb .grave.sel { transform: translateY(-4px); border-color: color-mix(in oklab, var(--accent) 50%, var(--line)); box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent), 0 26px 50px -24px var(--accent); }
 .vb .spirit { position: absolute; top: -22px; left: calc(50% - 26px); width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; color: var(--accent); background: var(--bg); box-shadow: 0 0 26px var(--glow), inset 0 0 0 1px color-mix(in oklab, var(--accent) 35%, transparent); animation: bob 3.6s ease-in-out infinite; }
 .vb .grave:nth-child(2n) .spirit { animation-delay: -1.2s; } .vb .grave:nth-child(3n) .spirit { animation-delay: -2.1s; }
-.vb .grave[data-status='draft_failed'] .spirit { color: var(--danger); } .vb .grave[data-status='approving'] .spirit { color: var(--warn); } .vb .grave[data-status='drafting'] .spirit { opacity: .6; }
+.vb .grave[data-status] .spirit { color: var(--status, var(--accent)); } .vb .grave[data-status='drafting'] .spirit, .vb .grave[data-status='new'] .spirit { opacity: .6; }
+/* A closed drawer is hidden from tab order and assistive tech; `visibility` waits for the slide-out to finish. */
+.vb .drawer { visibility: hidden; transition: transform .28s cubic-bezier(.2,.8,.2,1), visibility 0s linear .28s; }
+.vb.open .drawer { visibility: visible; transition: transform .28s cubic-bezier(.2,.8,.2,1), visibility 0s; }
 .vb .grave h3 { font: 700 20px/1.2 var(--font-display); margin: 6px 0 8px; text-wrap: balance; }
 .vb .g-meta { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
 .vb .g-price { font: 700 27px/1 var(--font-display); color: var(--good); margin: 0 0 12px; } .vb .g-price s { font: 500 14px var(--font-body); color: var(--muted); margin-left: 6px; }
@@ -141,6 +151,8 @@ kbd { font: 500 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; b
 .vc .dots button[data-status='drafted'] { background: color-mix(in oklab, var(--accent) 40%, var(--surface2)); }
 .vc .dots button[data-status='draft_failed'] { background: color-mix(in oklab, var(--danger) 45%, var(--surface2)); }
 .vc .dots button[data-status='approving'] { background: color-mix(in oklab, var(--warn) 45%, var(--surface2)); }
+.vc .dots button[data-status='action_failed'] { background: color-mix(in oklab, var(--danger) 45%, var(--surface2)); }
+.vc .dots button[data-status='new'] { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
 .vc .dots button[aria-current='true'] { background: var(--accent); transform: scaleY(1.6); box-shadow: 0 0 10px var(--accent); }
 .vc .nav { display: flex; gap: 6px; } .vc .nav .btn { width: 40px; padding: 0; justify-content: center; }
 .vc .deck { position: relative; }
@@ -154,7 +166,24 @@ kbd { font: 500 11px/1 var(--font-mono); padding: 3px 5px; border-radius: 5px; b
 .vc .card.leave-spare { opacity: 0; transform: translateX(-120px) rotate(-6deg); }
 .vc .card .d-actions .btn { height: 52px; padding: 0 22px; font-size: 16px; border-radius: 14px; }
 .vc .help { text-align: center; color: var(--muted); font-size: 12px; margin-top: 26px; display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
-@media (max-width: 640px) { .vc .card { padding: 28px 20px 24px; } .stats .stat:nth-child(2) { display: none; } }
+@media (max-width: 640px) { .vc .card { padding: 28px 20px 24px; } }
+/* Narrow phones (down to 320px): stack the header and HUD and wrap every row of controls, so nothing overflows sideways. */
+@media (max-width: 600px) {
+  .app-head { flex-wrap: wrap; padding: 14px 16px; gap: 12px; }
+  .stats { margin-left: 0; width: 100%; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .stat { text-align: left; }
+  .vb .hud { flex-wrap: wrap; padding: 16px 16px 0; }
+  .vb .meter { max-width: none; width: 100%; }
+  .vb .hud .keys { margin-left: 0; flex-wrap: wrap; gap: 8px 12px; }
+  .vb .yard { padding: 40px 16px 120px; }
+  .vb .graves { grid-template-columns: 1fr; }
+  .va .keys, .vc .help { gap: 8px 12px; }
+  .vc .stage { padding: 24px 14px 60px; }
+  .vc .progress { flex-wrap: wrap; gap: 12px; }
+  .vc .dots { order: 3; flex-basis: 100%; }
+  .vc .nav { margin-left: auto; }
+  .d-actions .hint { margin-left: 0; width: 100%; }
+}
 
 @keyframes pulse { 50% { opacity: .25; } } @keyframes shimmer { to { background-position: -200% 0; } }
 @keyframes bob { 50% { transform: translateY(-6px); } } @keyframes drift { to { transform: translateX(6%); } }
@@ -192,7 +221,8 @@ const THEMES = {
     summon: 'Summon', proposalLabel: 'Comment to post', sourceLabel: 'Open on GitHub',
     optionLabels: { close: 'Close the issue after commenting' },
     emptyTitle: 'All quiet in the crypt', emptyBody: 'No stale issues or pull requests. The next summon runs at 8:00 PM.',
-    status: { drafted: ['ready', 'Ready to banish'], drafting: ['busy', 'Summoning a draft'], draft_failed: ['fail', 'Draft failed'], approving: ['check', 'Check GitHub'] },
+    status: { new: ['wait', 'Waiting for a draft'], drafted: ['ready', 'Ready to banish'], drafting: ['busy', 'Summoning a draft'], draft_failed: ['fail', 'Draft failed'], approving: ['check', 'Check GitHub'], action_failed: ['fail', 'Banish failed'] },
+    actionFailedTitle: 'The comment wasn’t posted',
     haunts: [
       { title: 'Crash when the config file is empty', meta: 'acme/lantern · issue #214', age: '41 days quiet', sev: 'high', status: 'drafted',
         facts: [{ label: 'Comments', value: '3' }, { label: 'Last reply', value: '@mira' }, { label: 'Labels', value: 'bug' }],
@@ -211,6 +241,12 @@ const THEMES = {
         retry: { summary: 'Seven people confirmed it; there is no fix yet.', proposal: 'Thanks, everyone, for the reports. This is still on our list. Quoting the path in the spawn call should fix it; a PR is welcome if someone wants to take it.', reasoning: 'Widely reported and still open, so a status update is better than closing.', options: { close: false } } },
       { title: 'Support Node 26', meta: 'acme/ember · pull request #64', age: '30 days quiet', sev: 'medium', status: 'approving', unlocksAt: '7:58 PM',
         facts: [{ label: 'Checks', value: 'Passing' }, { label: 'Reviews', value: '1 approval' }] },
+      { title: 'Typo in the timeout error message', meta: 'acme/ember · issue #81', age: '33 days quiet', sev: 'low', status: 'action_failed',
+        error: 'GitHub returned 403: the token can’t comment on acme/ember.', facts: [{ label: 'Comments', value: '0' }, { label: 'Labels', value: 'good first issue' }],
+        summary: 'A one-word typo nobody has picked up.', proposal: 'Thanks for spotting this! It’s a one-line fix in src/errors.ts if you’d like to open a PR; otherwise I’ll fix it in the next release.',
+        reasoning: 'Small, clear, and a good first issue, so inviting a PR is better than closing.', options: { close: false } },
+      { title: 'Flaky test on macOS runners', meta: 'acme/lantern · issue #240', age: '31 days quiet', sev: 'medium', status: 'new',
+        waiting: 'This run reached its limit of 20 drafts. It’s first in line for the next run at 8:00 PM.', facts: [{ label: 'Comments', value: '2' }, { label: 'Labels', value: 'ci' }] },
     ],
   },
   poltergeist: {
@@ -219,7 +255,8 @@ const THEMES = {
     approve: 'Claim deal', approveHint: 'Nothing opens until you claim it. Nothing is ever bought.', approved: 'Deal opened in a new tab.', spare: 'Let it rest', spared: 'Resting. You’ll hear again if the price drops further.',
     summon: 'Check prices', proposalLabel: 'Verdict', sourceLabel: 'View deal', optionLabels: {},
     emptyTitle: 'Nothing is rattling', emptyBody: 'None of your games are under target. Prices are checked every hour.',
-    status: { drafted: ['ready', 'Verdict ready'], drafting: ['busy', 'Consulting the spirits'], draft_failed: ['fail', 'Verdict failed'], approving: ['check', 'Check the store'] },
+    status: { new: ['wait', 'Waiting for a verdict'], drafted: ['ready', 'Verdict ready'], drafting: ['busy', 'Consulting the spirits'], draft_failed: ['fail', 'Verdict failed'], approving: ['check', 'Check the store'], action_failed: ['fail', 'Couldn’t open'] },
+    actionFailedTitle: 'The deal didn’t open',
     haunts: [
       { title: 'Hollow Knight', meta: 'Steam · via CheapShark', age: 'dropped 2 h ago', sev: 'high', status: 'drafted',
         facts: [{ label: 'Now', value: '$7.49', tone: 'good' }, { label: 'Was', value: '$14.99', tone: 'strike' }, { label: 'All-time low', value: '$7.49' }, { label: 'Your target', value: '$8.00' }],
@@ -238,6 +275,11 @@ const THEMES = {
         retry: { summary: 'Lowest price this year, $2 above the all-time low.', proposal: 'Buy now. $9.99 is within $2 of the all-time low, and this sale is the deepest it has been this year.', reasoning: 'Close enough to the historic low that waiting saves little.', options: {} } },
       { title: 'Balatro', meta: 'Steam · via CheapShark', age: 'dropped 3 h ago', sev: 'medium', status: 'approving', unlocksAt: '7:58 PM',
         facts: [{ label: 'Now', value: '$12.49', tone: 'good' }, { label: 'Was', value: '$14.99', tone: 'strike' }] },
+      { title: 'Dead Cells', meta: 'Steam · via CheapShark', age: 'dropped 6 h ago', sev: 'medium', status: 'action_failed',
+        error: 'Your browser blocked the new tab.', facts: [{ label: 'Now', value: '$9.99', tone: 'good' }, { label: 'Was', value: '$24.99', tone: 'strike' }, { label: 'All-time low', value: '$9.99' }],
+        summary: 'At its all-time low.', proposal: 'Buy now. $9.99 is the lowest price CheapShark has recorded.', reasoning: 'Matches the historic low.', options: {} },
+      { title: 'Stardew Valley', meta: 'GOG · via CheapShark', age: 'dropped 10 min ago', sev: 'low', status: 'new',
+        waiting: 'Queued behind this run’s other verdicts. It’s next in line.', facts: [{ label: 'Now', value: '$8.99', tone: 'good' }, { label: 'Was', value: '$14.99', tone: 'strike' }] },
     ],
   },
 };
@@ -260,11 +302,19 @@ function detail(h) {
   if (h.status === 'approving') return `${head}<div class="notice">${icon('clock')}<div><strong>This may already have happened</strong>
     <p>The ${t.approve.toLowerCase()} started but its result wasn’t saved. Check the source before doing anything else. You can record what you find after ${h.unlocksAt}.</p></div></div>
     <div class="d-actions"><a class="btn" href="#" data-act="noop">${icon('external')} ${t.sourceLabel}</a><button class="btn" type="button" disabled>${icon('check')} It happened</button><button class="btn" type="button" disabled>${icon('x')} It didn’t</button><span class="hint">Unlocks at ${h.unlocksAt}</span></div>`;
-  const opts = Object.entries(h.options ?? {}).map(([k, v]) => `<label class="toggle"><input type="checkbox" ${v ? 'checked' : ''}> ${esc(t.optionLabels[k] ?? k)}</label>`).join('');
-  return `${head}<div class="d-label">${icon('spark')} What the agent found</div><p class="d-summary">${esc(h.summary)}</p>
+  if (h.status === 'new') return `${head}<div class="notice">${icon('clock')}<div><strong>Waiting for a draft</strong>
+    <p>${esc(h.waiting)} Nothing has been sent to the agent yet.</p></div></div>
+    <div class="d-actions"><button class="btn" type="button" data-act="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">You can spare it before it’s drafted.</span></div>`;
+  // Edits are saved into the haunt as you type (see the input handler), so they survive a re-render.
+  const opts = Object.entries(h.options ?? {}).map(([k, v]) => `<label class="toggle"><input type="checkbox" data-opt="${esc(k)}" ${v ? 'checked' : ''}> ${esc(t.optionLabels[k] ?? k)}</label>`).join('');
+  const failed = h.status === 'action_failed'
+    ? `<div class="notice fail">${icon('alert')}<div><strong>${esc(t.actionFailedTitle)}</strong><p>${esc(h.error)} The draft is kept, so you can fix the cause and try again.</p></div></div>`
+    : '';
+  const approveLabel = h.status === 'action_failed' ? `${icon('refresh')} Try ${t.approve.toLowerCase()} again` : `${icon('check')} ${t.approve}`;
+  return `${head}${failed}<div class="d-label">${icon('spark')} What the agent found</div><p class="d-summary">${esc(h.summary)}</p>
     <label class="d-label" for="proposal">${t.proposalLabel} <kbd>E</kbd></label><textarea id="proposal" class="d-proposal" rows="5">${esc(h.proposal)}</textarea>${opts}
     <details class="d-why"><summary>Why this draft</summary><p>${esc(h.reasoning)}</p></details>
-    <div class="d-actions"><button class="btn primary" type="button" data-act="approve">${icon('check')} ${t.approve} <kbd>A</kbd></button><button class="btn" type="button" data-act="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">${t.approveHint}</span></div>`;
+    <div class="d-actions"><button class="btn primary" type="button" data-act="approve">${approveLabel} <kbd>A</kbd></button><button class="btn" type="button" data-act="spare">${icon('x')} ${t.spare} <kbd>R</kbd></button><span class="hint">${t.approveHint}</span></div>`;
 }
 
 function toast(msg) {
@@ -281,10 +331,14 @@ const params = new URLSearchParams(location.search);
 let view = params.get('view') in VIEWS ? params.get('view') : 'b';
 let themeId = params.get('theme') in THEMES ? params.get('theme') : 'exorcist';
 let t, items, sel = 0, busy = false;
+let gen = 0; // bumped on every reset, so timers from a previous theme or layout are ignored
+let shortcutsOn = true;
 const $view = document.getElementById('view');
 
 function reset() {
+  gen++;
   t = structuredClone(THEMES[themeId]); items = t.haunts; sel = 0; busy = false;
+  items.forEach((h, i) => { h.id = `${themeId}-${i}`; });
   document.documentElement.dataset.theme = themeId;
   $view.className = 'v' + view;
   const url = new URL(location.href); url.searchParams.set('view', view); url.searchParams.set('theme', themeId);
@@ -298,11 +352,23 @@ function openFromUrl() {
   if (view === 'b' && params.has('open') && items[n]) openDrawer(n);
 }
 
+/**
+ * Re-renders, then puts focus back on the equivalent control. Every focusable control
+ * carries a stable data-fk key (e.g. "grave-exorcist-1", "next"), so keyboard users
+ * keep their place even though the markup is rebuilt.
+ */
 function render(animate = false) {
+  const fk = document.activeElement?.closest?.('[data-fk]')?.dataset.fk;
+  draw(animate);
+  if (fk) document.querySelector(`[data-fk="${CSS.escape(fk)}"]`)?.focus({ preventScroll: true });
+}
+
+function draw(animate) {
   document.getElementById('mockbar').innerHTML = `<strong>Crypt Kit board mockups</strong>
     <div class="seg" role="group" aria-label="Layout">${Object.entries(VIEWS).map(([k, l]) => `<button type="button" data-view="${k}" aria-pressed="${k === view}">${l}</button>`).join('')}</div>
     <span class="spacer"></span><span>App theme</span>
-    <div class="seg" role="group" aria-label="App theme">${Object.values(THEMES).map((x) => `<button type="button" data-theme-btn="${x.id}" aria-pressed="${x.id === themeId}">${x.name}</button>`).join('')}</div>`;
+    <div class="seg" role="group" aria-label="App theme">${Object.values(THEMES).map((x) => `<button type="button" data-theme-btn="${x.id}" aria-pressed="${x.id === themeId}">${x.name}</button>`).join('')}</div>
+    <div class="seg"><button type="button" class="shortcuts" data-fk="shortcuts" data-shortcuts aria-pressed="${shortcutsOn}" title="Single-key shortcuts (A, R, E, J, K)">Shortcuts ${shortcutsOn ? 'on' : 'off'}</button></div>`;
   document.getElementById('head').innerHTML = `<div class="brand"><div class="brand-mark">${icon(t.creature, 'i-lg')}</div><div><div class="brand-name">${esc(t.name)}</div><div class="brand-sub">${esc(t.sub)}</div></div></div>
     <div class="stats"><div class="stat accent"><b>${items.length}</b><span>${t.openLabel}</span></div><div class="stat"><b>${t.score}</b><span>${t.scoreLabel}</span></div>
     <button class="btn" type="button" data-act="summon">${icon('wand')} ${t.summon}</button></div>`;
@@ -312,7 +378,7 @@ function render(animate = false) {
 function renderA() {
   $view.innerHTML = `<main class="layout"><section class="queue" aria-label="Haunts">
     <div class="queue-head"><b>Open haunts</b><span>Oldest first</span></div>
-    <ul class="rows" role="listbox" aria-label="Open haunts">${items.map((h, i) => `<li class="row" role="option" data-i="${i}" data-status="${h.status}" aria-selected="${i === sel}">
+    <ul class="rows" role="listbox" tabindex="0" data-fk="listbox" aria-label="Open haunts" ${items[sel] ? `aria-activedescendant="opt-${items[sel].id}"` : ''}>${items.map((h, i) => `<li class="row" role="option" id="opt-${h.id}" data-i="${i}" data-status="${h.status}" aria-selected="${i === sel}">
       <span class="row-icon">${icon(t.creature)}</span><span class="row-main"><span class="row-title">${esc(h.title)}</span><span class="row-meta">${esc(h.meta)} · ${esc(h.age)}</span></span>${pill(h)}</li>`).join('')}</ul>
     <div class="keys"><span><kbd>J</kbd> <kbd>K</kbd> move</span><span><kbd>A</kbd> approve</span><span><kbd>R</kbd> spare</span><span><kbd>E</kbd> edit</span></div>
     </section><section class="detail" aria-live="polite">${items[sel] ? detail(items[sel]) : emptyState()}</section></main>`;
@@ -325,19 +391,33 @@ function renderB() {
   $view.innerHTML = `<div class="hud"><div class="meter"><div class="meter-top"><span><b>${t.score}</b> of ${t.weeklyGoal} ${t.scoreLabel}</span><span>${items.length} ${t.openLabel}</span></div>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${t.weeklyGoal}" aria-valuenow="${t.score}"><span style="width:${pct}%"></span></div></div>
       <div class="keys"><span><kbd>J</kbd> <kbd>K</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>A</kbd> approve</span><span><kbd>R</kbd> spare</span></div></div>
-    <main class="yard"><ul class="graves" aria-label="Haunts">${items.length ? items.map((h, i) => `<li class="grave ${i === sel ? 'sel' : ''}" data-i="${i}" data-status="${h.status}" tabindex="0" role="button" aria-label="${esc(h.title)}, ${t.status[h.status][1]}">
+    <main class="yard"><ul class="graves" aria-label="Haunts">${items.length ? items.map((h, i) => `<li class="grave ${i === sel ? 'sel' : ''}" data-i="${i}" data-fk="grave-${h.id}" data-status="${h.status}" tabindex="0" role="button" aria-haspopup="dialog" aria-label="${esc(h.title)}, ${t.status[h.status][1]}">
       <span class="spirit">${icon(t.creature, 'i-lg')}</span><h3>${esc(h.title)}</h3><p class="g-meta">${esc(h.meta)}<br>${esc(h.age)}</p>${price(h)}${pill(h)}</li>`).join('') : `<li style="grid-column:1/-1">${emptyState()}</li>`}</ul></main>
     <div class="scrim" data-act="close"></div>
-    <aside class="drawer" aria-label="Haunt details"><button class="btn ghost close" type="button" data-act="close" aria-label="Close">${icon('x')}</button><div aria-live="polite">${items[sel] ? detail(items[sel]) : ''}</div></aside>`;
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="Haunt details"><button class="btn ghost close" type="button" data-act="close" data-fk="close" aria-label="Close">${icon('x')}</button><div aria-live="polite">${items[sel] ? detail(items[sel]) : ''}</div></aside>`;
   $view.classList.toggle('open', wasOpen && !!items[sel]);
+  syncDrawer();
+}
+
+/**
+ * Open: everything behind the drawer is inert, so focus and clicks stay in the dialog.
+ * Closed: the drawer itself is inert (and hidden by CSS), so it's out of the tab order.
+ */
+function syncDrawer() {
+  const open = view === 'b' && $view.classList.contains('open');
+  const drawer = $view.querySelector('.drawer');
+  if (drawer) drawer.inert = !open;
+  for (const el of [document.getElementById('mockbar'), document.getElementById('head'), $view.querySelector('.hud'), $view.querySelector('.yard')]) {
+    if (el) el.inert = open;
+  }
 }
 
 function renderC(animate) {
   const left = Math.max(0, Math.min(2, items.length - 1));
   $view.innerHTML = `<main class="stage">
     <div class="progress">${items.length ? `<div class="count">${sel + 1} of ${items.length}<span>${t.score} ${t.scoreLabel}</span></div>
-      <div class="dots" aria-label="Haunts">${items.map((h, i) => `<button type="button" data-go="${i}" data-status="${h.status}" aria-label="${esc(h.title)}" ${i === sel ? 'aria-current="true"' : ''}></button>`).join('')}</div>
-      <div class="nav"><button class="btn" type="button" data-go="${sel - 1}" aria-label="Previous">${icon('chevronL')}</button><button class="btn" type="button" data-go="${sel + 1}" aria-label="Next">${icon('chevronR')}</button></div>` : ''}</div>
+      <div class="dots" aria-label="Haunts">${items.map((h, i) => `<button type="button" data-go="${i}" data-fk="dot-${h.id}" data-status="${h.status}" aria-label="${esc(h.title)}" ${i === sel ? 'aria-current="true"' : ''}></button>`).join('')}</div>
+      <div class="nav"><button class="btn" type="button" data-go="${sel - 1}" data-fk="prev" aria-label="Previous">${icon('chevronL')}</button><button class="btn" type="button" data-go="${sel + 1}" data-fk="next" aria-label="Next">${icon('chevronR')}</button></div>` : ''}</div>
     <div class="deck" data-left="${left}">${items[sel] ? `<article class="card ${animate && !reducedMotion() ? 'enter' : ''}"><span class="medium">${icon(t.creature, 'i-lg')}</span>${detail(items[sel])}</article>` : `<article class="card">${emptyState()}</article>`}</div>
     <div class="help"><span><kbd>A</kbd> approve</span><span><kbd>R</kbd> spare</span><span><kbd>E</kbd> edit</span><span><kbd>J</kbd> <kbd>K</kbd> next and previous</span></div></main>`;
   if (animate) requestAnimationFrame(() => requestAnimationFrame(() => $view.querySelector('.card')?.classList.remove('enter')));
@@ -350,23 +430,42 @@ function select(i, animate = true) {
   render(view === 'c' && animate);
   if (view === 'b') $view.querySelectorAll('.grave')[sel]?.focus();
 }
-const openDrawer = (i) => { sel = i; $view.classList.add('open'); render(); $view.querySelector('.drawer .close')?.focus(); };
-const closeDrawer = () => { $view.classList.remove('open'); $view.querySelectorAll('.grave')[sel]?.focus(); };
+const openDrawer = (i) => {
+  sel = i;
+  $view.classList.add('open');
+  render();
+  $view.querySelector('.drawer .close')?.focus();
+};
+const closeDrawer = () => {
+  $view.classList.remove('open');
+  syncDrawer();
+  $view.querySelectorAll('.grave')[sel]?.focus();
+};
+
+const APPROVABLE = ['drafted', 'action_failed'];
+const SPARABLE = ['new', 'drafting', 'drafted', 'draft_failed', 'action_failed'];
 
 function resolve(kind) {
   const h = items[sel];
   if (!h || busy) return;
-  if (kind === 'approve' && h.status !== 'drafted') return;
-  if (kind === 'spare' && h.status === 'approving') return;
+  if (kind === 'approve' && !APPROVABLE.includes(h.status)) return;
+  if (kind === 'spare' && !SPARABLE.includes(h.status)) return;
   busy = true;
-  if (view === 'b') $view.classList.remove('open');
+  const started = gen;
+  if (view === 'b') closeDrawer();
   const el = view === 'a' ? $view.querySelectorAll('.row')[sel] : view === 'b' ? $view.querySelectorAll('.grave')[sel] : $view.querySelector('.card');
   el?.classList.add('leave-' + kind);
   setTimeout(() => {
-    items.splice(sel, 1);
-    if (kind === 'approve') t.score++;
-    sel = Math.min(sel, Math.max(items.length - 1, 0));
+    // Remove the haunt that was acted on, by identity: the selection may have moved
+    // during the animation, and a theme or layout switch makes this callback stale.
+    if (started !== gen) return;
     busy = false;
+    const idx = items.indexOf(h);
+    if (idx < 0) return;
+    items.splice(idx, 1);
+    if (idx < sel) sel--;
+    sel = Math.min(sel, Math.max(items.length - 1, 0));
+    if (kind === 'approve') t.score++;
     render(true);
     toast(kind === 'approve' ? t.approved : t.spared);
   }, reducedMotion() ? 0 : { a: 320, b: 450, c: 420 }[view]);
@@ -374,11 +473,26 @@ function resolve(kind) {
 
 function redraft() {
   const h = items[sel];
+  const started = gen;
   h.status = 'drafting'; render();
-  setTimeout(() => { Object.assign(h, h.retry, { status: 'drafted' }); render(); }, reducedMotion() ? 0 : 1400);
+  setTimeout(() => {
+    if (started !== gen || !items.includes(h)) return;
+    Object.assign(h, h.retry, { status: 'drafted' });
+    render();
+  }, reducedMotion() ? 0 : 1400);
 }
 
+/* Save edits into the haunt as they happen, so closing the drawer or re-rendering keeps them. */
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'proposal' && items[sel]) items[sel].proposal = e.target.value;
+});
+document.addEventListener('change', (e) => {
+  const key = e.target.dataset?.opt;
+  if (key && items[sel]?.options && Object.hasOwn(items[sel].options, key)) items[sel].options[key] = e.target.checked;
+});
+
 document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-shortcuts]')) { shortcutsOn = !shortcutsOn; return render(); }
   const v = e.target.closest('[data-view]'); if (v) { view = v.dataset.view; return reset(); }
   const th = e.target.closest('[data-theme-btn]'); if (th) { themeId = th.dataset.themeBtn; return reset(); }
   const go = e.target.closest('[data-go]'); if (go) return select(Number(go.dataset.go));
@@ -399,15 +513,26 @@ document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.closest('textarea, input')) { if (e.key === 'Escape') e.target.blur(); return; }
   const key = e.key.toLowerCase();
+  const drawerOpen = $view.classList.contains('open');
+
+  // Standard keys that always work, whatever the shortcut setting.
+  if (key === 'escape' && drawerOpen) { e.preventDefault(); return closeDrawer(); }
   const grave = e.target.closest?.('.grave');
   if (grave && (key === 'enter' || key === ' ')) { e.preventDefault(); return openDrawer(Number(grave.dataset.i)); }
-  const drawerOpen = $view.classList.contains('open');
+  if (e.target.closest?.('[role="listbox"]')) {
+    const move = { arrowdown: sel + 1, arrowup: sel - 1, home: 0, end: items.length - 1 }[key];
+    if (move !== undefined) { e.preventDefault(); return select(Math.max(0, Math.min(items.length - 1, move))); }
+  }
+
+  // Single-key shortcuts: only on the board itself (not the mockup toolbar), and only when switched on.
+  if (!shortcutsOn || e.target.closest('.mockbar')) return;
+  // Act on the focused grave, not a stale selection.
+  if (grave && !drawerOpen) sel = Number(grave.dataset.i);
   const handlers = {
     j: () => !drawerOpen && select(sel + 1), k: () => !drawerOpen && select(sel - 1),
     arrowright: () => view === 'b' && !drawerOpen && select(sel + 1), arrowleft: () => view === 'b' && !drawerOpen && select(sel - 1),
     a: () => resolve('approve'), r: () => resolve('spare'),
     e: () => { if (view === 'b' && !drawerOpen) openDrawer(sel); setTimeout(() => document.getElementById('proposal')?.focus(), 60); },
-    escape: () => drawerOpen && closeDrawer(),
   };
   if (handlers[key]) { e.preventDefault(); handlers[key](); }
 });
