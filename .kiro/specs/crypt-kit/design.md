@@ -162,7 +162,12 @@ export interface Runner<P> {
 - The theme contract is `{ creature, palette, copy, motion }` and is passed as a typed prop. Apps don't fork components.
 - Motion uses CSS and View Transitions, with a reduced-motion fallback (R5.4).
 - Keyboard shortcuts: `A` approve, `R` spare, `E` edit, `J/K` next and previous. Every shortcut also has a visible button (R5.5).
-- The visual direction is not decided here. Each app gets 2-3 mockups first, and the chosen mockup becomes its visual spec (R5.6).
+- **Visual spec: mockup B · Graveyard** (`mockups/board/board-mockups.html?view=b`, both themes), chosen Nov 17 over A (triage queue) and C (one card at a time) (R5.6). Build to match it and pixel-compare against it:
+  - Header: brand mark, open count, weekly score, run button. Below it, a weekly progress meter and the keyboard hints.
+  - The yard: each haunt is an arched tombstone with a floating creature, title, meta, status pill (and price for Poltergeist). The stones sit on a horizon that stays centred, so a short list doesn't leave half the page empty.
+  - Opening a stone slides in a right-hand drawer with the shared haunt detail (facts, summary, editable proposal, options, why, approve/spare). The board behind dims.
+  - Approve makes the stone rise and dissolve; spare makes it sink. A stuck `approving` haunt shows the check-the-source notice with settle buttons disabled until unlock.
+  - Tokens: Exorcist = spectral cyan `#8ef0d8` on `#0b0e14`; Poltergeist = candle amber `#ffb347` on `#120b10`; serif display headings, system sans body.
 
 ## Apps
 

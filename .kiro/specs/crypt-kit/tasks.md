@@ -27,8 +27,8 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - [x] 4.4 SQLite table names are lowercase-only with `__` reserved for index names, so two stores can't share a table or collide with an index (PR #3 gap)
   - _Requirements: R3_
 
-- [ ] 5. Board mockups (Nov 20-21)
-  - [ ] 5.1 2-3 distinct board mockups per app as HTML; pick one each
+- [x] 5. Board mockups (Nov 20-21)
+  - [x] 5.1 2-3 distinct board mockups per app as HTML; pick one each. Three layouts, each in both themes, in `mockups/board/board-mockups.html`. Chosen: **B · Graveyard** for both apps (Nov 17).
   - _Requirements: R5.6_
 
 - [ ] 6. Board components (Nov 21-23)
