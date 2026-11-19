@@ -8,6 +8,7 @@ import { priceDropPresenter } from '../presenter';
 import { poltergeistTheme } from '../theme';
 import { approve, redraft, run, settle, spare } from './actions';
 import { WatchlistDrawer } from './watchlist-drawer';
+import { SourceAttribution } from './source-attribution';
 
 const WEEKLY_GOAL = 6;
 const actions = { approve, spare, redraft, settle, run };
@@ -34,13 +35,22 @@ export default async function Page() {
   ]);
   return (
     <Board
-      theme={poltergeistTheme(watched.length, source.name)}
+      theme={poltergeistTheme(watched.length, source.name, source.noun)}
       haunts={haunts}
       score={score}
       weeklyGoal={WEEKLY_GOAL}
       actions={actions}
       now={now.toISOString()}
-      headerActions={<WatchlistDrawer sourceName={source.name === 'demo prices' ? 'demo data' : source.name} />}
+      headerActions={
+        <>
+          <SourceAttribution attribution={source.attribution} />
+          <WatchlistDrawer
+            sourceName={source.name === 'demo prices' ? 'demo data' : source.name}
+            noun={source.noun}
+            {...(source.attribution ? { attribution: source.attribution } : {})}
+          />
+        </>
+      }
     />
   );
 }

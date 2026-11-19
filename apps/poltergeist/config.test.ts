@@ -7,6 +7,7 @@ describe('config', () => {
       source: 'fixture',
       watchlist: DEMO_WATCHLIST,
       cheapsharkContact: null,
+      bestbuyApiKey: null,
       boardPassword: null,
       publicDemo: false,
       cronSecret: null,
@@ -37,5 +38,18 @@ describe('config', () => {
     );
     expect(() => loadConfig({ POLTERGEIST_WATCHLIST: '612:3' })).toThrow(/fixture source has no such games: 612/);
     expect(loadConfig({ POLTERGEIST_WATCHLIST: 'celeste:5' }).watchlist).toEqual([{ itemId: 'celeste', target: 5 }]);
+  });
+
+  it('uses Best Buy only with an API key and a SKU watchlist, and never echoes the key', () => {
+    const key = 'bby-secret-key-123';
+    expect(() => loadConfig({ POLTERGEIST_SOURCE: 'bestbuy', POLTERGEIST_WATCHLIST: '6323759:400' })).toThrow(/BESTBUY_API_KEY: required/);
+    expect(() => loadConfig({ POLTERGEIST_SOURCE: 'bestbuy', BESTBUY_API_KEY: key })).toThrow(/POLTERGEIST_WATCHLIST: required when POLTERGEIST_SOURCE is bestbuy/);
+    expect(() => loadConfig({ POLTERGEIST_SOURCE: 'bestbuy', BESTBUY_API_KEY: key, POLTERGEIST_WATCHLIST: 'tv-1:400' })).toThrow(/Best Buy SKUs are 1–12 digits: tv-1/);
+    expect(() => loadConfig({ POLTERGEIST_SOURCE: 'bestbuy', BESTBUY_API_KEY: key, POLTERGEIST_WATCHLIST: 'tv-1:400' })).not.toThrow(new RegExp(key));
+    expect(loadConfig({ POLTERGEIST_SOURCE: 'bestbuy', BESTBUY_API_KEY: ` ${key} `, POLTERGEIST_WATCHLIST: '6323759:400' })).toMatchObject({
+      source: 'bestbuy',
+      bestbuyApiKey: key,
+      watchlist: [{ itemId: '6323759', target: 400 }],
+    });
   });
 });

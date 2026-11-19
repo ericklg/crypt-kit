@@ -27,6 +27,10 @@ export interface PriceSource {
   id: SourceId;
   /** Display name, e.g. "CheapShark". */
   name: string;
+  /** What one item is called in the UI. */
+  noun: { one: string; many: string };
+  /** A logo the source's terms require wherever its data appears, as they provide it. */
+  attribution?: { href: string; logo: string; alt: string };
   /** False when the source needs config that isn't set (e.g. an API key). */
   enabled(): boolean;
   /** Current prices for these items. Items the source doesn't know are left out. */

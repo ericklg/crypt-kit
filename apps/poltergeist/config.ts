@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { WatchItem } from './detectors/price-drops';
+import { isBestBuySku } from './sources/bestbuy';
 import { isCheapSharkGameId } from './sources/cheapshark';
 import { FIXTURE_CATALOG } from './sources/fixture';
 
@@ -21,7 +22,9 @@ export const MAX_TARGET = 100_000;
 
 /** Whether the source can look this item up (so watching it can ever alert). */
 export function isKnownItem(source: PoltergeistConfig['source'], itemId: string): boolean {
-  return source === 'cheapshark' ? isCheapSharkGameId(itemId) : FIXTURE_CATALOG.some((q) => q.itemId === itemId);
+  if (source === 'cheapshark') return isCheapSharkGameId(itemId);
+  if (source === 'bestbuy') return isBestBuySku(itemId);
+  return FIXTURE_CATALOG.some((q) => q.itemId === itemId);
 }
 
 /** A target as typed: dollars with at most two decimals, from 0 to MAX_TARGET. */
@@ -56,21 +59,24 @@ const watchlist = z
   });
 
 const envSchema = z.object({
-  /** `fixture` (default: demo prices, no network) or `cheapshark` (live). */
-  POLTERGEIST_SOURCE: z.enum(['fixture', 'cheapshark']).default('fixture'),
-  /** `gameId:target` pairs. Required for cheapshark; defaults to DEMO_WATCHLIST for fixture. */
+  /** `fixture` (default: demo prices, no network), `cheapshark` (live games), or `bestbuy` (needs BESTBUY_API_KEY). */
+  POLTERGEIST_SOURCE: z.enum(['fixture', 'cheapshark', 'bestbuy']).default('fixture'),
+  /** `itemId:target` pairs. Required for live sources; defaults to DEMO_WATCHLIST for fixture. */
   POLTERGEIST_WATCHLIST: watchlist.optional(),
   /** Added to the User-Agent CheapShark sees, e.g. an email (see steering/price-sources.md). */
   CHEAPSHARK_CONTACT: z.string().max(100).optional(),
+  /** Best Buy Products API key. Server env only; never sent to the browser. */
+  BESTBUY_API_KEY: z.string().trim().min(1).max(200).optional(),
   CRYPT_BOARD_PASSWORD: z.string().min(12).optional(),
   CRYPT_PUBLIC_DEMO: z.enum(['1', 'true']).optional(),
   CRON_SECRET: z.string().min(16).optional(),
 });
 
 export interface PoltergeistConfig {
-  source: 'fixture' | 'cheapshark';
+  source: 'fixture' | 'cheapshark' | 'bestbuy';
   watchlist: readonly WatchItem[];
   cheapsharkContact: string | null;
+  bestbuyApiKey: string | null;
   boardPassword: string | null;
   publicDemo: boolean;
   cronSecret: string | null;
@@ -88,20 +94,29 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new ConfigError(`Price Poltergeist is misconfigured: ${problems}`);
   }
   const e = parsed.data;
-  if (e.POLTERGEIST_SOURCE === 'cheapshark' && !e.POLTERGEIST_WATCHLIST) {
-    throw new ConfigError('Price Poltergeist is misconfigured: POLTERGEIST_WATCHLIST: required when POLTERGEIST_SOURCE is cheapshark');
+  const fail = (msg: string): never => {
+    throw new ConfigError(`Price Poltergeist is misconfigured: ${msg}`);
+  };
+  if (e.POLTERGEIST_SOURCE === 'bestbuy' && !e.BESTBUY_API_KEY) fail('BESTBUY_API_KEY: required when POLTERGEIST_SOURCE is bestbuy');
+  if (e.POLTERGEIST_SOURCE !== 'fixture' && !e.POLTERGEIST_WATCHLIST) {
+    fail(`POLTERGEIST_WATCHLIST: required when POLTERGEIST_SOURCE is ${e.POLTERGEIST_SOURCE}`);
   }
   // IDs the source can't look up would be skipped silently, so the alert would never fire.
   const list = e.POLTERGEIST_WATCHLIST ?? DEMO_WATCHLIST;
   const unknown = list.filter((i) => !isKnownItem(e.POLTERGEIST_SOURCE, i.itemId)).map((i) => i.itemId.slice(0, 40));
   if (unknown.length) {
-    const what = e.POLTERGEIST_SOURCE === 'cheapshark' ? 'CheapShark game IDs are 1–10 digits' : 'the fixture source has no such games';
-    throw new ConfigError(`Price Poltergeist is misconfigured: POLTERGEIST_WATCHLIST: ${what}: ${unknown.join(', ')}`);
+    const what = {
+      cheapshark: 'CheapShark game IDs are 1–10 digits',
+      bestbuy: 'Best Buy SKUs are 1–12 digits',
+      fixture: 'the fixture source has no such games',
+    }[e.POLTERGEIST_SOURCE];
+    fail(`POLTERGEIST_WATCHLIST: ${what}: ${unknown.join(', ')}`);
   }
   return {
     source: e.POLTERGEIST_SOURCE,
     watchlist: list,
     cheapsharkContact: e.CHEAPSHARK_CONTACT ?? null,
+    bestbuyApiKey: e.BESTBUY_API_KEY ?? null,
     boardPassword: e.CRYPT_BOARD_PASSWORD ?? null,
     publicDemo: e.CRYPT_PUBLIC_DEMO !== undefined,
     cronSecret: e.CRON_SECRET ?? null,

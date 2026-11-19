@@ -9,7 +9,8 @@ Prices come from [CheapShark](https://www.cheapshark.com/) (no API key). Its usa
 | Variable | Required | What it is |
 | --- | --- | --- |
 | `CRYPT_MODEL_ID` | for verdicts | Model for verdicts. See `@crypt-kit/agent` (`CRYPT_MODEL_PROVIDER`, credentials). Without it the board still loads, and new verdicts fail with a message naming it |
-| `POLTERGEIST_SOURCE` | no | `fixture` (default: demo prices, no network) or `cheapshark` (live) |
+| `POLTERGEIST_SOURCE` | no | `fixture` (default: demo prices, no network), `cheapshark` (live PC games) or `bestbuy` (live Best Buy products, needs `BESTBUY_API_KEY`) |
+| `BESTBUY_API_KEY` | for `bestbuy` | A free key from [developer.bestbuy.com](https://developer.bestbuy.com). Server env only. With `bestbuy`, item IDs are Best Buy SKUs |
 | `POLTERGEIST_WATCHLIST` | for `cheapshark` | `gameId:target` pairs, e.g. `612:3, 128:15.50`, that start the watchlist the first time it's read. After that, edit it from the board's Watchlist drawer. Game IDs are CheapShark's. A target of `0` alerts when a game is free |
 | `CHEAPSHARK_CONTACT` | no | Added to the User-Agent CheapShark sees, e.g. an email |
 | `CRYPT_BOARD_PASSWORD` | one of these two | At least 12 characters. The browser asks for it, and every action checks it |
@@ -36,7 +37,7 @@ Then start the app with the same `CRYPT_DB_URL`.
 
 ## How it works
 
-- `sources/` holds the `PriceSource` interface, the fixture source and the CheapShark source. CheapShark responses are cached for an hour and a `429` pauses calls until its `Retry-After` has passed. Both are stored in the database (`poltergeist_kv`), so every server instance shares them. Requests go one at a time within an instance.
+- `sources/` holds the `PriceSource` interface, the fixture source, the CheapShark source and the Best Buy source. Live sources share `cached-get.ts`: responses are cached for an hour and a `429` pauses calls until its `Retry-After` has passed, both stored in the database (`poltergeist_kv`) so every server instance shares them. Requests go one at a time within an instance, and Best Buy's start at least 250 ms apart. Best Buy's logo shows in the header and the watchlist drawer, as its terms require.
 - `detectors/price-drops.ts` emits a finding only when a watched game is at or under its target, keyed `source:gameId@price`, so a further drop is a new haunt.
 - `prompt.ts` asks for "Buy now." or "Wait." with a short reason, using the historic low when there is one.
 - `actions/open-deal.ts` hands the board the CheapShark redirect link, which the board opens in a new tab. It never fetches the link.

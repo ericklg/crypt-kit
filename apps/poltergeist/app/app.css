@@ -66,3 +66,9 @@ body {
   .wl-drawer { padding: 24px 18px; }
   .wl-item { grid-template-columns: 1fr auto; }
 }
+
+/* A source's required logo (Best Buy's Branding Guidelines): its own image, unaltered,
+   smaller than the app's name. */
+.pg-attribution { display: inline-flex; align-items: center; }
+.pg-attribution img { display: block; height: 28px; width: auto; }
+.wl-drawer .pg-attribution { margin: 2px 0 6px; }

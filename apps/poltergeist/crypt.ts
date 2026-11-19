@@ -12,6 +12,7 @@ import { createOpenDealAction } from './actions/open-deal';
 import { loadConfig, type PoltergeistConfig } from './config';
 import { createPriceDropsDetector, type PriceDrop } from './detectors/price-drops';
 import { describePriceDrop, VERDICT_INSTRUCTIONS } from './prompt';
+import { createBestBuySource } from './sources/bestbuy';
 import { createCheapSharkSource } from './sources/cheapshark';
 import { createFixtureSource, FIXTURE_CATALOG } from './sources/fixture';
 import type { PriceSource } from './sources/price-source';
@@ -37,11 +38,12 @@ export function getConfig(): PoltergeistConfig {
 export function getSource(): PriceSource {
   if (source) return source;
   const c = getConfig();
-  // CheapShark's cache and rate-limit pause live in the database, so every instance shares them.
-  source =
-    c.source === 'cheapshark'
-      ? createCheapSharkSource({ contact: c.cheapsharkContact, shared: createSqliteKeyValue({ ...db(), tableName: 'poltergeist_kv' }) })
-      : createFixtureSource();
+  // Live sources keep their cache and rate-limit pause in the database, so every instance
+  // shares them.
+  const shared = () => createSqliteKeyValue({ ...db(), tableName: 'poltergeist_kv' });
+  if (c.source === 'cheapshark') source = createCheapSharkSource({ contact: c.cheapsharkContact, shared: shared() });
+  else if (c.source === 'bestbuy') source = createBestBuySource({ apiKey: c.bestbuyApiKey!, shared: shared() });
+  else source = createFixtureSource();
   return source;
 }
 

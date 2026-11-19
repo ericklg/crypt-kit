@@ -23,6 +23,15 @@ Source: CheapShark's own API docs at [apidocs.cheapshark.com](https://apidocs.ch
 - **Data.** Prices are in USD. Dates are Unix seconds. Flags are `0`/`1`. Game Lookup gives `cheapestPriceEver`, which we pass to the agent as the historic low. Deals list `storeID`, `price`, `retailPrice` and `savings`.
 - **Development.** Tests use recorded fixtures, never the live API, as the docs suggest using a mock.
 
-## Best Buy (stretch, 8.6)
+## Best Buy
 
-Not built yet. It's keyed by SKU and needs `BESTBUY_API_KEY` (free: 50,000 calls a day, 5 a second). The key stays in server env, and the source is hidden when no key is set. Read Best Buy's API terms before building it and add them here.
+Source: Best Buy's [API Terms of Service and Branding Guidelines](https://developer.bestbuy.com/legal) (last updated 2021-02-23) and its [API documentation](https://bestbuyapis.github.io/api-documentation/), read 2026-11-19. Summary in our words:
+
+- **Key.** It needs a free key, `BESTBUY_API_KEY`, which lives in server env only. The terms forbid disclosing it to anyone, so it's added to the request URL only at the moment the request is sent. It never appears in cache keys, logs, error messages or the page.
+- **Limits.** 50,000 calls a day and 5 a second. Requests start at least 250 ms apart, and lookups batch SKUs with `sku in(...)`, which Best Buy recommends for avoiding per-second errors. Over the limit, the API returns `403` (also used for a bad key) or `429`. A `429` pauses calls everywhere, like CheapShark's.
+- **Caching.** Content may be cached only temporarily, at most 72 hours, to speed up display. We cache for 1 hour.
+- **Branding.** Every page, screen or widget that shows Best Buy data must show the Best Buy logo, where that data appears. Use only their asset: `<a href="https://developer.bestbuy.com"><img src="https://developer.bestbuy.com/images/bestbuy-logo.png" alt="Best Buy Developer API"/></a>`. Don't alter it, and don't make it larger than the app's own name or so small it can't be identified. The board header and the watchlist drawer both show it.
+- **Attribution and links.** Credit Best Buy as the source ("Prices from Best Buy"). Don't modify or obscure links to bestbuy.com, so the product `url` is used exactly as sent.
+- **Music and movies.** Their data may only be used together with Best Buy's affiliate program, so products of type Music or Movie are left out.
+- **Checkout wording.** The terms require specific wording only on checkout through the Commerce Gateway API. Poltergeist never buys anything, so it doesn't apply.
+- **Search.** Keyword search takes whole words (`search=word&search=word`). Typed text is reduced to letters and digits, so it can't change the query.

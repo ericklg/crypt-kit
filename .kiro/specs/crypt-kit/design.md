@@ -206,7 +206,7 @@ export interface PriceSource {
 ```
 
 - **CheapShark (primary):** an official public API with no key. Watchlist items are CheapShark game IDs, and `historicLow` comes from the game lookup and is passed to the agent. Responses are cached server-side (default 1 hour) and requests are serialized. Before building, read CheapShark's usage notes (rate limits, caching, User-Agent, deal link format) and copy them into `steering/price-sources.md`.
-- **Best Buy (stretch):** the Products API keyed by SKU. It needs a free key: 50,000 calls/day and 5 calls/sec. The key lives only in server env, and the source is hidden in the UI when no key is set.
+- **Best Buy (stretch, built Nov 19):** the Products API keyed by SKU, selected with `POLTERGEIST_SOURCE=bestbuy` and usable only with `BESTBUY_API_KEY`. It allows 50,000 calls a day and 5 a second; we space requests 250 ms apart and batch SKUs with `sku in(...)`. The key lives only in server env and never reaches cache keys, logs or errors. Best Buy's logo is shown wherever its data appears, as its Branding Guidelines require, and music and movies are excluded (affiliate-only). Without a key the app runs on the other sources.
 - **Amazon and eBay are out.** Amazon's Creators API requires an Associates account with qualifying sales. eBay listings are per-seller and expire, so they don't produce stable item keys. Scraping is out.
 
 ## MCP server (packages/mcp)

@@ -1,3 +1,4 @@
+import { createCachedGet, RateLimitError, type SharedState } from './cached-get';
 import type { PriceQuote, PriceSource, SourceContext } from './price-source';
 
 // Follows CheapShark's usage notes; see .kiro/steering/price-sources.md.
@@ -29,22 +30,9 @@ export interface CheapSharkOptions {
   now?: () => number;
 }
 
-/** Expiring string values shared across instances. */
-export interface SharedState {
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string, ttlMs: number): Promise<void>;
-}
-
-const BLOCK_KEY = 'cheapshark:blocked-until';
-const cacheKey = (path: string) => `cheapshark:cache:${path}`;
-
-/** CheapShark refused us for now (429). Polls fail instead of reporting partial prices. */
-export class CheapSharkRateLimitError extends Error {
-  override readonly name = 'CheapSharkRateLimitError';
-  constructor(readonly retryAt: number) {
-    super(`CheapShark is rate limiting this app; not calling it again until ${new Date(retryAt).toISOString()}`);
-  }
-}
+export type { SharedState };
+/** CheapShark refused us for now (429). Kept as a name for the shared error. */
+export const CheapSharkRateLimitError = RateLimitError;
 
 interface Deal {
   storeID: string;
@@ -85,57 +73,17 @@ const dealLink = (dealId: string) => (/^[A-Za-z0-9%._~-]+$/.test(dealId) ? `${CH
  * pauses all calls until its Retry-After has passed.
  */
 export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSource {
-  const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
-  const now = options.now ?? Date.now;
   const userAgent = options.contact ? `${USER_AGENT} ${options.contact.replace(/[^\x20-\x7e]/g, '')}` : USER_AGENT;
-  const cache = new Map<string, { expires: number; data: unknown }>();
-  /** Keeps the in-memory cache small: expired entries go, then the oldest past the cap. */
-  const remember = (path: string, expires: number, data: unknown) => {
-    const t = now();
-    for (const [key, entry] of cache) if (entry.expires <= t) cache.delete(key);
-    cache.delete(path);
-    cache.set(path, { expires, data });
-    while (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value!);
-  };
-  const shared = options.shared ?? null;
-  let queue: Promise<unknown> = Promise.resolve();
-  let blockedUntil = 0;
-
-  /** GET a CheapShark API path, through the caches, one request at a time per instance. */
-  const get = <T>(path: string, ctx: SourceContext, ttl = cacheMs): Promise<T> => {
-    const run = async (): Promise<T> => {
-      const hit = cache.get(path);
-      if (hit && hit.expires > now()) return hit.data as T;
-      if (shared) {
-        const stored = await shared.get(cacheKey(path));
-        // Not copied into the in-memory cache: that would restart its clock, and the
-        // shared entry's own expiry is the one that counts.
-        if (stored !== null) return JSON.parse(stored) as T;
-        blockedUntil = Math.max(blockedUntil, Number(await shared.get(BLOCK_KEY)) || 0);
-      }
-      if (blockedUntil > now()) throw new CheapSharkRateLimitError(blockedUntil);
-      const res = await ctx.fetch(`${CHEAPSHARK_API}${path}`, {
-        headers: { accept: 'application/json', 'user-agent': userAgent },
-        signal: ctx.signal,
-      });
-      if (res.status === 429) {
-        const seconds = Number(res.headers.get('retry-after'));
-        const pauseMs = (Number.isFinite(seconds) && seconds > 0 ? seconds : 60) * 1000;
-        blockedUntil = now() + pauseMs;
-        await shared?.set(BLOCK_KEY, String(blockedUntil), pauseMs);
-        throw new CheapSharkRateLimitError(blockedUntil);
-      }
-      if (!res.ok) throw new Error(`CheapShark returned ${res.status} for ${path.split('?')[0]}`);
-      const text = await res.text();
-      const data = JSON.parse(text) as T;
-      remember(path, now() + ttl, data);
-      await shared?.set(cacheKey(path), text, ttl);
-      return data;
-    };
-    const result = queue.then(run, run);
-    queue = result.catch(() => undefined);
-    return result;
-  };
+  const get = createCachedGet({
+    name: 'CheapShark',
+    keyPrefix: 'cheapshark',
+    cacheMs: options.cacheMs ?? DEFAULT_CACHE_MS,
+    maxCached: MAX_CACHED,
+    shared: options.shared ?? null,
+    ...(options.now ? { now: options.now } : {}),
+    request: (path, ctx) =>
+      ctx.fetch(`${CHEAPSHARK_API}${path}`, { headers: { accept: 'application/json', 'user-agent': userAgent }, signal: ctx.signal }),
+  });
 
   /**
    * storeID → name. Display only, so a failure doesn't fail the poll. It reuses the last
@@ -148,7 +96,7 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
       const stores = await get<Store[]>('/stores', ctx, STORES_CACHE_MS);
       lastStores = new Map(stores.map((s) => [s.storeID, s.storeName]));
     } catch (error) {
-      if (error instanceof CheapSharkRateLimitError) throw error;
+      if (error instanceof RateLimitError) throw error;
     }
     return lastStores;
   };
@@ -156,6 +104,7 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
   return {
     id: 'cheapshark',
     name: 'CheapShark',
+    noun: { one: 'game', many: 'games' },
     enabled: () => true,
 
     async quote(itemIds, ctx) {

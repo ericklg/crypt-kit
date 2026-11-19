@@ -4,7 +4,7 @@ import type { BoardTheme } from '@crypt-kit/board';
  * Price Poltergeist's look and words: mockup B (Graveyard), candle amber on plum-black
  * (mockups/board/board-mockups.html?view=b&theme=poltergeist).
  */
-export function poltergeistTheme(watched: number, sourceName: string): BoardTheme {
+export function poltergeistTheme(watched: number, sourceName: string, noun: { one: string; many: string } = { one: 'game', many: 'games' }): BoardTheme {
   return {
     id: 'poltergeist',
     creature: 'flame',
@@ -26,7 +26,7 @@ export function poltergeistTheme(watched: number, sourceName: string): BoardThem
     },
     copy: {
       name: 'Price Poltergeist',
-      sub: `${watched} ${watched === 1 ? 'game' : 'games'} watched · ${sourceName}`,
+      sub: `${watched} ${watched === 1 ? noun.one : noun.many} watched · ${sourceName}`,
       openLabel: 'rattling',
       scoreLabel: 'deals claimed this week',
       approve: 'Claim deal',
@@ -41,7 +41,7 @@ export function poltergeistTheme(watched: number, sourceName: string): BoardThem
       waiting: 'Queued behind this run’s other verdicts. It’s next in line.',
       emptyTitle: 'Nothing is rattling',
       // Mockup B said "every hour"; Vercel Hobby crons run daily, so say what's true.
-      emptyBody: 'None of your games are under target. Prices are checked once a day, or when you press Check prices.',
+      emptyBody: `None of your ${noun.many} are under target. Prices are checked once a day, or when you press Check prices.`,
       status: {
         new: 'Waiting for a verdict',
         drafting: 'Consulting the spirits',

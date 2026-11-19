@@ -3,8 +3,9 @@ import type { PriceDrop } from './detectors/price-drops';
 
 /** What a good verdict looks like (R7.4). The kit appends its untrusted-input rules. */
 export const VERDICT_INSTRUCTIONS = `
-You help someone decide whether to buy a PC game now or wait. Each finding is one game
-they're watching whose price just reached their target. Give a buy-or-wait verdict.
+You help someone decide whether to buy something now or wait. Each finding is one item
+they're watching, a PC game or a product, whose price just reached their target. Give a
+buy-or-wait verdict.
 
 In "proposal", start with "Buy now." or "Wait." and follow with one or two short
 sentences of plain reasoning the person can check against the numbers given:
@@ -19,12 +20,12 @@ In "summary", say in one sentence where the price stands, e.g. "At its all-time 
 under your $8 target."
 `.trim();
 
-/** What the model sees: the prices and target, nothing about the person or other games. */
+/** What the model sees: the prices and target, nothing about the person or other items. */
 export function describePriceDrop(finding: Finding<PriceDrop>): unknown {
   const p = finding.payload;
   const savings = p.normalPrice && p.normalPrice > 0 ? Math.round((1 - p.price / p.normalPrice) * 100) : null;
   return {
-    game: p.title,
+    item: p.title,
     store: p.store,
     currency: p.currency,
     price: p.price,

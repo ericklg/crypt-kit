@@ -20,6 +20,7 @@ export function createFixtureSource(catalog: readonly PriceQuote[] = FIXTURE_CAT
   return {
     id: 'fixture',
     name: 'demo prices',
+    noun: { one: 'game', many: 'games' },
     enabled: () => true,
     async quote(itemIds) {
       return itemIds.flatMap((id) => {

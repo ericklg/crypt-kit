@@ -2,6 +2,8 @@
 
 import { Icon } from '@crypt-kit/board';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { PriceSource } from '../sources/price-source';
+import { SourceAttribution } from './source-attribution';
 import {
   loadWatchlist,
   searchGames,
@@ -21,7 +23,14 @@ const SEARCH_DELAY_MS = 350;
  * stop watching. A native modal <dialog>, so focus stays inside, Escape closes it and the
  * board behind is inert; focus returns to the Watchlist button on close.
  */
-export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
+export interface WatchlistDrawerProps {
+  sourceName: string;
+  noun?: { one: string; many: string };
+  /** The source's required logo, shown in the drawer too, since its data appears here. */
+  attribution?: PriceSource['attribution'];
+}
+
+export function WatchlistDrawer({ sourceName, noun = { one: 'game', many: 'games' }, attribution }: WatchlistDrawerProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const searchSeq = useRef(0);
   const [games, setGames] = useState<WatchedGame[] | null>(null);
@@ -137,9 +146,12 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
           <Icon name="x" />
         </button>
         <h2 id="wl-title">Your watchlist</h2>
-        <p className="wl-note">We tell you when a game drops to your target. Prices from {sourceName}.</p>
+        <p className="wl-note">
+          We tell you when a {noun.one} drops to your target. Prices from {sourceName}.
+        </p>
+        <SourceAttribution attribution={attribution} />
 
-        <h3 className="wl-label">Add a game</h3>
+        <h3 className="wl-label">Add a {noun.one}</h3>
         <label className="wl-field">
           <Icon name="search" />
           <input
@@ -147,7 +159,7 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by title"
-            aria-label="Search games"
+            aria-label={`Search ${noun.many}`}
             maxLength={100}
             autoComplete="off"
           />
@@ -174,7 +186,7 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
               ))}
             </ul>
           ) : (
-            <p className="wl-note">No games match “{query.trim()}”.</p>
+            <p className="wl-note">No {noun.many} match “{query.trim()}”.</p>
           )
         ) : null}
 
@@ -191,7 +203,7 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
             <p className="wl-note">Loading…</p>
           )
         ) : games.length ? (
-          <ul className="wl-list" aria-label="Watched games">
+          <ul className="wl-list" aria-label={`Watched ${noun.many}`}>
             {games.map((g) => (
               <li className="wl-item" key={g.itemId}>
                 <div>
@@ -223,7 +235,7 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
             ))}
           </ul>
         ) : (
-          <p className="wl-note">No games yet. Search above to add one.</p>
+          <p className="wl-note">No {noun.many} yet. Search above to add one.</p>
         )}
         <p className="wl-note">Changes apply the next time prices are checked.</p>
         <div className="wl-status" role="status" aria-live="polite" data-tone={message?.tone}>
