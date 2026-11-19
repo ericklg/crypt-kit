@@ -23,6 +23,10 @@ pnpm typecheck          # builds the packages the app imports
 pnpm --filter @crypt-kit/exorcist dev
 ```
 
+## Public demo
+
+The demo watches [ericklg/crypt-kit-sandbox](https://github.com/ericklg/crypt-kit-sandbox), whose issues are test data. Its issues are new, so set `EXORCIST_STALE_DAYS=1` to see them the day after they're opened. Use `CRYPT_PUBLIC_DEMO=1` only with a token limited to that repo.
+
 ## Demo data without GitHub or a model
 
 ```sh

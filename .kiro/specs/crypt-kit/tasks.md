@@ -37,9 +37,9 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - [x] 6.3 Server components by default; client only for interactive parts
   - _Requirements: R5_
 
-- [ ] 7. Exorcist app (Nov 23-25)
+- [x] 7. Exorcist app (Nov 23-25)
   - [x] 7.1 GitHub stale detector + fixtures + contract test
-  - [ ] 7.2 Triage prompt, comment/close action, sandbox demo repo (prompt and action done; sandbox repo pending)
+  - [x] 7.2 Triage prompt, comment/close action, sandbox demo repo (ericklg/crypt-kit-sandbox)
   - [x] 7.3 Theme matched to the chosen mockup; BotID on action routes
   - _Requirements: R6, R4_
 
