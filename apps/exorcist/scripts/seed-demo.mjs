@@ -33,6 +33,7 @@ const findings = [
     lastComments: [{ author: 'mira', body: 'Any update?', createdAt: daysAgo(41) }],
   }),
   item('acme/lantern', 198, 'issue', 'Docs: wrong flag name in the quickstart', 63, { comments: 1 }),
+  item('acme/lantern', 231, 'pull_request', 'Add retries to the webhook sender', 35),
   item('acme/ember', 77, 'issue', 'Paths with spaces break on Windows', 90),
   item('acme/ember', 64, 'pull_request', 'Support Node 26', 30),
   item('acme/ember', 81, 'issue', 'Typo in the timeout error message', 33),
@@ -55,11 +56,21 @@ const drafts = {
 };
 
 const store = createSqliteStore({ url, tableName: 'exorcist_haunts' });
+
+/** Leaves a haunt mid-draft, as the runner's claim does, for an hour (the drafting state). */
+async function markDrafting(s, key) {
+  const h = await s.get(key);
+  const at = new Date();
+  const claimExpiresAt = new Date(at.getTime() + 3_600_000).toISOString();
+  await s.put({ ...h, status: 'drafting', draft: null, error: null, claimExpiresAt, updatedAt: at.toISOString(), version: h.version + 1 }, h.version);
+}
 const base = {
   detector: { id: 'github-stale-items', payloadSchema: { safeParse: (v) => ({ success: true, data: v }) }, poll: async () => findings },
   store,
   log: silentLogger,
-  maxDraftsPerRun: 5, // leaves #240 waiting for a draft
+  // A clock that moves 1 ms per call, so haunts seen in one run keep the list's order.
+  now: ((tick) => () => new Date(Date.now() + ++tick))(0),
+  maxDraftsPerRun: 6, // leaves #240 waiting for a draft; #231 is set mid-draft below
 };
 const seeding = createRunner({
   ...base,
@@ -83,6 +94,7 @@ const seeding = createRunner({
 await seeding.run();
 await seeding.approve('acme/ember#81');
 await seeding.approve('acme/ember#64');
+await markDrafting(store, 'acme/lantern#231');
 const statuses = (await seeding.list()).map((h) => `${h.key} ${h.status}`);
 console.log(statuses.join('\n'));
 store.close();

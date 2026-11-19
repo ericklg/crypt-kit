@@ -43,6 +43,8 @@ const store = createSqliteStore({ url, tableName: 'poltergeist_haunts' });
 const runner = createRunner({
   detector: { id: 'price-drops-fixture', payloadSchema: { safeParse: (v) => ({ success: true, data: v }) }, poll: async () => findings },
   store,
+  // A clock that moves 1 ms per call, so haunts seen in one run keep the list's order.
+  now: ((tick) => () => new Date(Date.now() + ++tick))(0),
   log: silentLogger,
   maxDraftsPerRun: 6, // leaves Stardew Valley waiting for a verdict
   agent: {
@@ -66,5 +68,12 @@ const runner = createRunner({
 await runner.run();
 await runner.approve('fixture:dead-cells@9.99');
 await runner.approve('fixture:balatro@12.49');
+// Celeste: left mid-verdict for an hour, as the runner's claim does (the drafting state).
+const celeste = await store.get('fixture:celeste@4.99');
+const at = new Date();
+await store.put(
+  { ...celeste, status: 'drafting', draft: null, error: null, claimExpiresAt: new Date(at.getTime() + 3_600_000).toISOString(), updatedAt: at.toISOString(), version: celeste.version + 1 },
+  celeste.version,
+);
 console.log((await runner.list()).map((h) => `${h.key} ${h.status}`).join('\n'));
 store.close();
