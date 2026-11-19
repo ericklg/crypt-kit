@@ -11,13 +11,30 @@ const MAX_IDS_PER_CALL = 25;
 const MAX_SEARCH_RESULTS = 10;
 const GAME_ID = /^\d{1,10}$/;
 
+/** CheapShark game IDs are 1–10 digits. */
+export const isCheapSharkGameId = (id: string) => GAME_ID.test(id);
+
 export interface CheapSharkOptions {
   /** How long responses are reused. Default 1 hour, CheapShark's own update rate. */
   cacheMs?: number;
   /** Added to the User-Agent, e.g. an email, so CheapShark can reach us. */
   contact?: string | null;
+  /**
+   * State shared by every server instance (e.g. `createSqliteKeyValue`). With it, the cache
+   * and a 429's pause apply across instances, not just the one that saw them.
+   */
+  shared?: SharedState | null;
   now?: () => number;
 }
+
+/** Expiring string values shared across instances. */
+export interface SharedState {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, ttlMs: number): Promise<void>;
+}
+
+const BLOCK_KEY = 'cheapshark:blocked-until';
+const cacheKey = (path: string) => `cheapshark:cache:${path}`;
 
 /** CheapShark refused us for now (429). Polls fail instead of reporting partial prices. */
 export class CheapSharkRateLimitError extends Error {
@@ -70,14 +87,24 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
   const now = options.now ?? Date.now;
   const userAgent = options.contact ? `${USER_AGENT} ${options.contact.replace(/[^\x20-\x7e]/g, '')}` : USER_AGENT;
   const cache = new Map<string, { expires: number; data: unknown }>();
+  const shared = options.shared ?? null;
   let queue: Promise<unknown> = Promise.resolve();
   let blockedUntil = 0;
 
-  /** GET a CheapShark API path, through the cache, one request at a time. */
+  /** GET a CheapShark API path, through the caches, one request at a time per instance. */
   const get = <T>(path: string, ctx: SourceContext, ttl = cacheMs): Promise<T> => {
     const run = async (): Promise<T> => {
       const hit = cache.get(path);
       if (hit && hit.expires > now()) return hit.data as T;
+      if (shared) {
+        const stored = await shared.get(cacheKey(path));
+        if (stored !== null) {
+          const data = JSON.parse(stored) as T;
+          cache.set(path, { expires: now() + ttl, data });
+          return data;
+        }
+        blockedUntil = Math.max(blockedUntil, Number(await shared.get(BLOCK_KEY)) || 0);
+      }
       if (blockedUntil > now()) throw new CheapSharkRateLimitError(blockedUntil);
       const res = await ctx.fetch(`${CHEAPSHARK_API}${path}`, {
         headers: { accept: 'application/json', 'user-agent': userAgent },
@@ -85,12 +112,16 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
       });
       if (res.status === 429) {
         const seconds = Number(res.headers.get('retry-after'));
-        blockedUntil = now() + (Number.isFinite(seconds) && seconds > 0 ? seconds : 60) * 1000;
+        const pauseMs = (Number.isFinite(seconds) && seconds > 0 ? seconds : 60) * 1000;
+        blockedUntil = now() + pauseMs;
+        await shared?.set(BLOCK_KEY, String(blockedUntil), pauseMs);
         throw new CheapSharkRateLimitError(blockedUntil);
       }
       if (!res.ok) throw new Error(`CheapShark returned ${res.status} for ${path.split('?')[0]}`);
-      const data = (await res.json()) as T;
+      const text = await res.text();
+      const data = JSON.parse(text) as T;
       cache.set(path, { expires: now() + ttl, data });
+      await shared?.set(cacheKey(path), text, ttl);
       return data;
     };
     const result = queue.then(run, run);

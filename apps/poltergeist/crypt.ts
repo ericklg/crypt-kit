@@ -1,7 +1,7 @@
 import 'server-only';
 import { createAiAgent, modelFromEnv } from '@crypt-kit/agent';
 import { createRunner, type Runner } from '@crypt-kit/core';
-import { createSqliteStore, DEFAULT_DATABASE_URL } from '@crypt-kit/store-sqlite';
+import { createSqliteKeyValue, createSqliteStore, DEFAULT_DATABASE_URL } from '@crypt-kit/store-sqlite';
 import { createOpenDealAction } from './actions/open-deal';
 import { loadConfig, type PoltergeistConfig } from './config';
 import { createPriceDropsDetector, type PriceDrop } from './detectors/price-drops';
@@ -23,14 +23,24 @@ export function getConfig(): PoltergeistConfig {
 
 export function getSource(): PriceSource {
   const c = getConfig();
-  source ??= c.source === 'cheapshark' ? createCheapSharkSource({ contact: c.cheapsharkContact }) : createFixtureSource();
+  if (source) return source;
+  if (c.source === 'cheapshark') {
+    // Cache and rate-limit pause live in the database, so every instance shares them.
+    const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
+    const shared = createSqliteKeyValue({ url: dbUrl(), tableName: 'poltergeist_kv', ...(authToken ? { authToken } : {}) });
+    source = createCheapSharkSource({ contact: c.cheapsharkContact, shared });
+  } else {
+    source = createFixtureSource();
+  }
   return source;
 }
+
+const dbUrl = () => process.env.CRYPT_DB_URL?.trim() || DEFAULT_DATABASE_URL;
 
 export function getRunner(): Runner<PriceDrop> {
   if (runner) return runner;
   const c = getConfig();
-  const url = process.env.CRYPT_DB_URL?.trim() || DEFAULT_DATABASE_URL;
+  const url = dbUrl();
   const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
   runner = createRunner<PriceDrop>({
     detector: createPriceDropsDetector({ source: getSource(), watchlist: async () => c.watchlist }),

@@ -126,6 +126,37 @@ describe('CheapShark source', () => {
     expect(after).toEqual(before);
   });
 
+  it('shares its cache and a 429 pause with other instances through shared state', async () => {
+    const values = new Map<string, { value: string; expires: number }>();
+    let t = 0;
+    const shared = {
+      get: async (k: string) => {
+        const v = values.get(k);
+        return v && v.expires > t ? v.value : null;
+      },
+      set: async (k: string, value: string, ttl: number) => void values.set(k, { value, expires: t + ttl }),
+    };
+    let calls = 0;
+    let limited = false;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return limited ? new Response('slow down', { status: 429, headers: { 'retry-after': '60' } }) : Response.json([]);
+    };
+    const one = createCheapSharkSource({ shared, now: () => t });
+    const two = createCheapSharkSource({ shared, now: () => t }); // another server instance
+    await one.search('batman', ctx(fetch));
+    await two.search('batman', ctx(fetch));
+    expect(calls).toBe(1); // the second instance used the shared cache
+
+    limited = true;
+    await expect(one.search('hades', ctx(fetch))).rejects.toBeInstanceOf(CheapSharkRateLimitError);
+    await expect(two.search('celeste', ctx(fetch))).rejects.toBeInstanceOf(CheapSharkRateLimitError);
+    expect(calls).toBe(2); // the second instance honored the first one's pause
+    t = 61_000;
+    limited = false;
+    await expect(two.search('celeste', ctx(fetch))).resolves.toEqual([]);
+  });
+
   it('skips unknown games, non-numeric IDs and deals with odd IDs', async () => {
     const odd = { ...recordedGames['612'], deals: [{ ...recordedGames['612'].deals[0]!, dealID: 'abc"><script>' }] };
     const { fetch, calls } = fixtureFetch([

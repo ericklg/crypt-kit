@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { WatchItem } from './detectors/price-drops';
+import { isCheapSharkGameId } from './sources/cheapshark';
+import { FIXTURE_CATALOG } from './sources/fixture';
 
 /** The demo watchlist for the fixture source: mockup B's games, one of them not on sale. */
 export const DEMO_WATCHLIST: readonly WatchItem[] = [
@@ -14,6 +16,8 @@ export const DEMO_WATCHLIST: readonly WatchItem[] = [
 ];
 
 const ITEM = /^[A-Za-z0-9-]{1,64}$/;
+/** The detector's supported price range (`priceDropSchema`). */
+const MAX_TARGET = 100_000;
 
 /** `612:8, 128:5.5` → watch items. Targets are USD. */
 const watchlist = z
@@ -21,10 +25,15 @@ const watchlist = z
   .transform((s, ctx) => {
     const items: WatchItem[] = [];
     for (const part of s.split(',').map((p) => p.trim()).filter(Boolean)) {
-      const [itemId = '', target = ''] = part.split(':').map((x) => x.trim());
+      const fields = part.split(':').map((x) => x.trim());
+      const [itemId = '', target = ''] = fields;
       const price = Number(target);
-      if (!ITEM.test(itemId) || !/^\d+(\.\d{1,2})?$/.test(target) || !(price >= 0)) {
-        ctx.addIssue({ code: 'custom', message: `"${part.slice(0, 40)}" isn't itemId:targetPrice` });
+      if (fields.length !== 2 || !ITEM.test(itemId) || !/^\d+(\.\d{1,2})?$/.test(target) || !(price >= 0 && price <= MAX_TARGET)) {
+        ctx.addIssue({ code: 'custom', message: `"${part.slice(0, 40)}" isn't itemId:targetPrice with a target from 0 to ${MAX_TARGET}` });
+        return z.NEVER;
+      }
+      if (items.some((i) => i.itemId === itemId)) {
+        ctx.addIssue({ code: 'custom', message: `"${itemId}" is listed twice` });
         return z.NEVER;
       }
       items.push({ itemId, target: price });
@@ -69,9 +78,17 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (e.POLTERGEIST_SOURCE === 'cheapshark' && !e.POLTERGEIST_WATCHLIST) {
     throw new ConfigError('Price Poltergeist is misconfigured: POLTERGEIST_WATCHLIST: required when POLTERGEIST_SOURCE is cheapshark');
   }
+  // IDs the source can't look up would be skipped silently, so the alert would never fire.
+  const list = e.POLTERGEIST_WATCHLIST ?? DEMO_WATCHLIST;
+  const known = e.POLTERGEIST_SOURCE === 'cheapshark' ? isCheapSharkGameId : (id: string) => FIXTURE_CATALOG.some((q) => q.itemId === id);
+  const unknown = list.filter((i) => !known(i.itemId)).map((i) => i.itemId.slice(0, 40));
+  if (unknown.length) {
+    const what = e.POLTERGEIST_SOURCE === 'cheapshark' ? 'CheapShark game IDs are 1–10 digits' : 'the fixture source has no such games';
+    throw new ConfigError(`Price Poltergeist is misconfigured: POLTERGEIST_WATCHLIST: ${what}: ${unknown.join(', ')}`);
+  }
   return {
     source: e.POLTERGEIST_SOURCE,
-    watchlist: e.POLTERGEIST_WATCHLIST ?? DEMO_WATCHLIST,
+    watchlist: list,
     cheapsharkContact: e.CHEAPSHARK_CONTACT ?? null,
     boardPassword: e.CRYPT_BOARD_PASSWORD ?? null,
     publicDemo: e.CRYPT_PUBLIC_DEMO !== undefined,

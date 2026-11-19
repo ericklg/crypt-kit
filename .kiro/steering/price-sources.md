@@ -17,8 +17,8 @@ Source: CheapShark's own API docs at [apidocs.cheapshark.com](https://apidocs.ch
 - **Rate limits.** Too many requests in a short time return `429` and a temporary block. The `Retry-After` header gives the seconds left. All clients share the same limits. On `429` the source stops calling until `Retry-After` has passed, and the poll fails loudly rather than reporting a partial list.
 - **No bulk crawling.** The API is meant for answering user actions. Building a cached catalog with automated requests leads to rate limiting and can get a client blocked for good. So:
   - Polls read only the watchlist, through Multiple Game Lookup (`/games?ids=`, at most 25 IDs per call), never the deals catalog.
-  - Responses are cached on the server for 1 hour. Prices update about hourly anyway, so polling more often gains nothing.
-  - Requests go one at a time.
+  - Responses are cached for 1 hour, in the shared database (`poltergeist_kv`), so every server instance shares one cache. Prices update about hourly anyway, so polling more often gains nothing.
+  - Requests go one at a time within an instance. A `429`'s pause is stored in the same table, so other instances honor it too.
   - Search (`/games?title=`) runs only when a user types a query.
 - **Data.** Prices are in USD. Dates are Unix seconds. Flags are `0`/`1`. Game Lookup gives `cheapestPriceEver`, which we pass to the agent as the historic low. Deals list `storeID`, `price`, `retailPrice` and `savings`.
 - **Development.** Tests use recorded fixtures, never the live API, as the docs suggest using a mock.

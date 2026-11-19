@@ -36,7 +36,7 @@ Then start the app with the same `CRYPT_DB_URL`.
 
 ## How it works
 
-- `sources/` holds the `PriceSource` interface, the fixture source and the CheapShark source. CheapShark responses are cached for an hour, requests go one at a time, and a `429` pauses all calls until its `Retry-After` has passed.
+- `sources/` holds the `PriceSource` interface, the fixture source and the CheapShark source. CheapShark responses are cached for an hour and a `429` pauses calls until its `Retry-After` has passed. Both are stored in the database (`poltergeist_kv`), so every server instance shares them. Requests go one at a time within an instance.
 - `detectors/price-drops.ts` emits a finding only when a watched game is at or under its target, keyed `source:gameId@price`, so a further drop is a new haunt.
 - `prompt.ts` asks for "Buy now." or "Wait." with a short reason, using the historic low when there is one.
 - `actions/open-deal.ts` hands the board the CheapShark redirect link, which the board opens in a new tab. It never fetches the link.

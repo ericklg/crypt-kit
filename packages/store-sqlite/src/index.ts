@@ -207,3 +207,75 @@ export function createSqliteStoreFromEnv(env: Record<string, string | undefined>
   const authToken = env.CRYPT_DB_AUTH_TOKEN?.trim();
   return createSqliteStore(authToken ? { url, authToken } : { url });
 }
+
+/** Values that expire, shared by every process using the same database. */
+export interface SqliteKeyValue {
+  /** The value, or null when it's missing or expired. */
+  get(key: string): Promise<string | null>;
+  /** Stores `value` for `ttlMs` milliseconds, replacing any earlier value. */
+  set(key: string, value: string, ttlMs: number): Promise<void>;
+  /** Closes the client if this store created it. */
+  close(): void;
+}
+
+export interface SqliteKeyValueOptions extends Omit<SqliteStoreOptions, 'tableName'> {
+  /** Same naming rules as the haunts table. Default `crypt_kv`. */
+  tableName?: string;
+  now?: () => number;
+}
+
+/**
+ * A small expiring key-value table, for state that must be shared across serverless
+ * instances (e.g. an API's cache and rate-limit pause). Not for haunts.
+ */
+export function createSqliteKeyValue(options: SqliteKeyValueOptions = {}): SqliteKeyValue {
+  const table = options.tableName ?? 'crypt_kv';
+  const problem = invalidTableName(table);
+  if (problem) throw new Error(`Invalid table name ${JSON.stringify(table)}: ${problem}`);
+  const now = options.now ?? Date.now;
+  const ownsClient = !options.client;
+  const client =
+    options.client ??
+    createClient(
+      options.authToken
+        ? { url: options.url ?? DEFAULT_DATABASE_URL, authToken: options.authToken }
+        : { url: options.url ?? DEFAULT_DATABASE_URL },
+    );
+  const t = `"${table}"`;
+  let ready: Promise<void> | null = null;
+  const migrate = () =>
+    (ready ??= client
+      .execute(`create table if not exists ${t} (key text primary key, value text not null, expires_at integer not null)`)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        ready = null;
+        throw error;
+      }));
+
+  return {
+    async get(key) {
+      await migrate();
+      const result = await client.execute({ sql: `select value from ${t} where key = ? and expires_at > ?`, args: [key, now()] });
+      const row = result.rows[0];
+      return row ? String(row.value) : null;
+    },
+    async set(key, value, ttlMs) {
+      if (!Number.isFinite(ttlMs) || ttlMs <= 0) throw new RangeError('ttlMs must be a positive number');
+      await migrate();
+      await client.batch(
+        [
+          { sql: `delete from ${t} where expires_at <= ?`, args: [now()] },
+          {
+            sql: `insert into ${t} (key, value, expires_at) values (?, ?, ?)
+                  on conflict (key) do update set value = excluded.value, expires_at = excluded.expires_at`,
+            args: [key, value, Math.ceil(now() + ttlMs)],
+          },
+        ],
+        'write',
+      );
+    },
+    close() {
+      if (ownsClient) client.close();
+    },
+  };
+}

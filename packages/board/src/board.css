@@ -134,7 +134,8 @@
 .ck-empty .ck-i-xl { color: var(--ck-accent); margin-bottom: 14px; animation: ck-bob 4s ease-in-out infinite; }
 .ck-empty h3 { font: 700 24px/1.2 var(--ck-font-display); color: var(--ck-ink); margin: 0 0 6px; }
 
-.ck-toasts { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); }
+.ck-toasts { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); max-height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; }
+.ck-toasts:empty { display: none; }
 .ck-toast { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: var(--ck-surface2); border: 1px solid var(--ck-line); box-shadow: 0 18px 40px -16px #000; animation: ck-toast-in .25s ease-out; }
 .ck-toast .ck-i { color: var(--ck-accent); }
 .ck-toast[data-tone='fail'] .ck-i { color: var(--ck-danger); }
