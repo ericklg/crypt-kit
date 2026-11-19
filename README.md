@@ -24,6 +24,7 @@ Requires Node 26 (see `.nvmrc`) and pnpm 12.
 pnpm install
 pnpm typecheck   # tsc -b
 pnpm test        # vitest run
+pnpm create-app release-wraith   # a new app in apps/release-wraith; see its README
 ```
 
 CI runs the same typecheck and tests on every pull request and on pushes to `main`.

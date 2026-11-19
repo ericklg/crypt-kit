@@ -1,0 +1,16 @@
+import { assertDetectorContract } from '@crypt-kit/core/testing';
+import { describe, expect, it } from 'vitest';
+import { FEED_URL, recordedRoutes } from './fixtures';
+import { createItemsDetector } from './items';
+
+describe('items detector', () => {
+  it('follows the detector contract against the recorded feed', async () => {
+    const { findings } = await assertDetectorContract(createItemsDetector({ sourceUrl: FEED_URL, threshold: 10 }), { routes: recordedRoutes });
+    expect(findings.map((f) => f.key)).toEqual(['item-1', 'item-2']);
+  });
+
+  it('reports the sample items, with no network, when no source is set', async () => {
+    const { calls } = await assertDetectorContract(createItemsDetector({ sourceUrl: null, threshold: 10 }), { routes: [] });
+    expect(calls).toEqual([]);
+  });
+});

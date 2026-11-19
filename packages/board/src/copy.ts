@@ -36,6 +36,8 @@ export const DEFAULT_UI_COPY: UiCopy = {
   runDone: 'Done. The board is up to date.',
   runFailed: 'The run didn’t finish. Refresh to see the current state.',
   linkBlocked: 'Your browser blocked the new tab for {title}.',
+  reviewRequested: 'Your assistant asked you to review this',
+  reviewRequestedHint: 'Nothing happens until you press {approveLabel}.',
   openLink: 'Open it here',
   dismiss: 'Dismiss',
   unconfirmed: 'We couldn’t confirm what happened. Check the source and refresh before trying again.',

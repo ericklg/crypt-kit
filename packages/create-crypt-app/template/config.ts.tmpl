@@ -1,0 +1,40 @@
+import { z } from 'zod';
+
+const envSchema = z.object({
+  /** A JSON feed of { id, title, value, url } items. Unset: the built-in sample items. */
+  {{env}}_SOURCE_URL: z.url({ protocol: /^https?$/ }).optional(),
+  /** Items at or over this value are reported. */
+  {{env}}_THRESHOLD: z.coerce.number().default(10),
+  CRYPT_BOARD_PASSWORD: z.string().min(12).optional(),
+  CRYPT_PUBLIC_DEMO: z.enum(['1', 'true']).optional(),
+  CRON_SECRET: z.string().min(16).optional(),
+});
+
+export interface AppConfig {
+  sourceUrl: string | null;
+  threshold: number;
+  boardPassword: string | null;
+  publicDemo: boolean;
+  cronSecret: string | null;
+}
+
+/** A missing or invalid env var. Its message names variables, never their values. */
+export class ConfigError extends Error {
+  override readonly name = 'ConfigError';
+}
+
+export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
+  const parsed = envSchema.safeParse(env);
+  if (!parsed.success) {
+    const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw new ConfigError(`{{title}} is misconfigured: ${problems}`);
+  }
+  const e = parsed.data;
+  return {
+    sourceUrl: e.{{env}}_SOURCE_URL ?? null,
+    threshold: e.{{env}}_THRESHOLD,
+    boardPassword: e.CRYPT_BOARD_PASSWORD ?? null,
+    publicDemo: e.CRYPT_PUBLIC_DEMO !== undefined,
+    cronSecret: e.CRON_SECRET ?? null,
+  };
+}

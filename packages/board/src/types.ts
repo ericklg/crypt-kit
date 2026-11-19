@@ -107,6 +107,10 @@ export interface UiCopy {
   runFailed: string;
   /** Shown when approve should open a link but the browser blocked the new tab. `{title}` is the haunt's. */
   linkBlocked: string;
+  /** Notice on a haunt an assistant flagged for review (MCP `request_approval`), with its note below. */
+  reviewRequested: string;
+  /** Under that notice; `{approveLabel}` is the approve button's text. */
+  reviewRequestedHint: string;
   /** Text of the link in that message. */
   openLink: string;
   /** Accessible name of the button that closes a message. */
@@ -168,6 +172,8 @@ export interface HauntView {
    * does. Null means unknown, and the board keeps settling locked.
    */
   claimExpiresAt: string | null;
+  /** An assistant asked the user to review this (MCP `request_approval`). Optional for older views. */
+  approvalRequest?: { note: string; at: string } | null;
 }
 
 /** `url`: where the action's result lives (a posted comment, a deal). Only https links are opened. */

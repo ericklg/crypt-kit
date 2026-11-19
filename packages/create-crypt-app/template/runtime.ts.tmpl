@@ -1,0 +1,36 @@
+// How {{title}} is wired: config, detector, agent, action, store. Next.js code imports it
+// through ./crypt (which adds `server-only`); scripts like mcp.ts import it directly.
+import { createAiAgent, modelFromEnv } from '@crypt-kit/agent';
+import { createRunner, type Runner } from '@crypt-kit/core';
+import { createSqliteStore, DEFAULT_DATABASE_URL } from '@crypt-kit/store-sqlite';
+import { createAct } from './actions/act';
+import { loadConfig, type AppConfig } from './config';
+import { createItemsDetector, type Item } from './detectors/items';
+import { describeItem, INSTRUCTIONS } from './prompt';
+
+let config: AppConfig | null = null;
+let runner: Runner<Item> | null = null;
+
+export function getConfig(): AppConfig {
+  config ??= loadConfig();
+  return config;
+}
+
+export function getRunner(): Runner<Item> {
+  if (runner) return runner;
+  const c = getConfig();
+  const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
+  runner = createRunner<Item>({
+    detector: createItemsDetector({ sourceUrl: c.sourceUrl, threshold: c.threshold }),
+    // Resolved on the first draft, so the board loads without model settings.
+    agent: createAiAgent<Item>({ model: () => modelFromEnv(), instructions: INSTRUCTIONS, describe: describeItem }),
+    action: createAct(),
+    // Its own table, so this app can share a database with the others.
+    store: createSqliteStore({
+      url: process.env.CRYPT_DB_URL?.trim() || DEFAULT_DATABASE_URL,
+      tableName: '{{table}}',
+      ...(authToken ? { authToken } : {}),
+    }),
+  });
+  return runner;
+}

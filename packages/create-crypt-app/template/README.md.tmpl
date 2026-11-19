@@ -1,0 +1,35 @@
+# {{title}}
+
+A Crypt Kit app: something is detected, an agent drafts what to do, and a person approves it on a haunted board.
+
+It runs as generated, on sample items and with no network:
+
+```sh
+pnpm install
+pnpm --filter @crypt-kit/{{name}} test
+CRYPT_PUBLIC_DEMO=1 pnpm --filter @crypt-kit/{{name}} dev
+```
+
+Press **Check now** to detect. Drafting needs a model (`CRYPT_MODEL_ID`; see `@crypt-kit/agent`). Without one, the board shows each draft's error.
+
+## Make it yours: four files
+
+1. **`detectors/items.ts`**: what to watch. It returns findings, never calls a model, and keys each finding by the source's own ID. Record a real response into `detectors/fixtures.ts`, so the contract test runs against it.
+2. **`actions/act.ts`**: what approving does. It runs once per approval, only after a person approves. Make it safe to retry.
+3. **`prompt.ts`**: what the agent drafts, and exactly what it's shown.
+4. **`theme.ts`**: the creature, colors and words.
+
+Everything else (`runtime.ts`, `app/`, `mcp.ts`) is wiring you can leave alone.
+
+## Settings
+
+| Variable | What it is |
+| --- | --- |
+| `{{env}}_SOURCE_URL` | The JSON feed the stub detector reads. Unset: sample items |
+| `{{env}}_THRESHOLD` | Items at or over this value are reported. Default 10 |
+| `CRYPT_MODEL_ID` | The model for drafts |
+| `CRYPT_BOARD_PASSWORD` or `CRYPT_PUBLIC_DEMO=1` | Who may act. With neither, the board is read-only |
+| `CRYPT_DB_URL`, `CRYPT_DB_AUTH_TOKEN` | libSQL database (Turso on Vercel). Default `file:crypt-kit.db` |
+| `CRON_SECRET` | Turns on the daily run at `/api/cron` |
+
+Kiro can triage this app's haunts over MCP: see `packages/mcp/README.md` and use `pnpm -C apps/{{name}} --silent mcp`.

@@ -1447,3 +1447,39 @@ describe('approving: claim, act, record', () => {
     expect((await backend.get('a'))?.status).toBe('drafted');
   });
 });
+
+describe('review requests', () => {
+  it('flags a drafted haunt for review without running the action', async () => {
+    const t = setup();
+    t.setFindings([finding('a')]);
+    await t.runner.run();
+    const res = await t.runner.requestApproval('a', '  Looks right: the reporter confirmed the fix.  ');
+    expect(res).toMatchObject({ ok: true, haunt: { status: 'drafted', approvalRequest: { note: 'Looks right: the reporter confirmed the fix.' } } });
+    expect(t.actionRun).not.toHaveBeenCalled();
+    expect((await t.runner.get('a'))?.approvalRequest?.note).toBe('Looks right: the reporter confirmed the fix.');
+    expect(await t.runner.get('missing')).toBeNull();
+  });
+
+  it('only flags haunts with a draft to review, and caps the note', async () => {
+    const t = setup();
+    t.draft.mockRejectedValueOnce(new Error('model down'));
+    t.setFindings([finding('a')]);
+    await t.runner.run();
+    expect(await t.runner.requestApproval('a', 'x')).toMatchObject({ ok: false, reason: 'not_allowed' }); // draft_failed
+    await t.runner.redraft('a');
+    const res = await t.runner.requestApproval('a', 'y'.repeat(2000));
+    expect(res.ok && res.haunt.approvalRequest?.note.length).toBe(500);
+  });
+
+  it('is cleared by any status change: approving, sparing or a new draft', async () => {
+    const t = setup();
+    t.setFindings([finding('a'), finding('b'), finding('c')]);
+    await t.runner.run();
+    for (const k of ['a', 'b', 'c']) await t.runner.requestApproval(k, 'please');
+
+    await t.runner.approve('a');
+    await t.runner.spare('b');
+    await t.runner.redraft('c');
+    for (const k of ['a', 'b', 'c']) expect((await t.runner.get(k))?.approvalRequest ?? null).toBeNull();
+  });
+});

@@ -1,0 +1,56 @@
+import type { BoardTheme } from '@crypt-kit/board';
+
+// STEP 4 of 4: how the board looks and speaks. Restyle only through this contract
+// (.kiro/steering/ui.md): creature, palette, copy, motion. The palette starts as
+// Exorcist's; keep text at WCAG AA contrast if you change it.
+export function appTheme(): BoardTheme {
+  return {
+    id: '{{name}}',
+    creature: 'ghost',
+    palette: {
+      bg: '#0b0e14',
+      bg2: '#0f131b',
+      surface: '#151a24',
+      surface2: '#1c2230',
+      line: '#2a3243',
+      ink: '#e9eef7',
+      muted: '#a3adc0',
+      accent: '#8ef0d8',
+      accentInk: '#062720',
+      glow: 'rgba(142,240,216,.16)',
+      warn: '#ffd27a',
+      danger: '#ff9a8a',
+      good: '#9be7a6',
+    },
+    copy: {
+      name: '{{title}}',
+      sub: 'Watching your items',
+      openLabel: 'haunting',
+      scoreLabel: 'handled this week',
+      approve: 'Approve',
+      approveHint: 'Nothing happens until you approve.',
+      approved: 'Approved.',
+      spare: 'Spare',
+      spared: 'Spared.',
+      run: 'Check now',
+      proposalLabel: 'Draft',
+      sourceLabel: 'Open source',
+      actionFailedTitle: 'Approving didn’t finish',
+      waiting: 'Waiting for its draft; it’s next in line.',
+      emptyTitle: 'All quiet',
+      emptyBody: 'Nothing has crossed its threshold.',
+      status: {
+        new: 'Waiting for a draft',
+        drafting: 'Drafting',
+        drafted: 'Ready to review',
+        draft_failed: 'Draft failed',
+        approving: 'Check the source',
+        approved: 'Approved',
+        action_failed: 'Approve failed',
+        spared: 'Spared',
+        resolved: 'Resolved',
+      },
+      optionLabels: {},
+    },
+  };
+}

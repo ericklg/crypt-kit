@@ -1,0 +1,15 @@
+import type { Presenter } from '@crypt-kit/board';
+import type { Item } from './detectors/items';
+
+/** How an item reads on its stone and in the drawer. Runs on the server. */
+export const itemPresenter: Presenter<Item> = {
+  meta: (f) => `value ${f.payload.value} · threshold ${f.payload.threshold}`,
+  age: (_f, now, firstSeenAt) => {
+    const hours = Math.max(0, Math.floor((now.getTime() - Date.parse(firstSeenAt)) / 3_600_000));
+    return hours < 1 ? 'new in the last hour' : hours < 48 ? `${hours} h on the board` : `${Math.floor(hours / 24)} days on the board`;
+  },
+  facts: (f) => [
+    { label: 'Value', value: String(f.payload.value) },
+    { label: 'Threshold', value: String(f.payload.threshold) },
+  ],
+};

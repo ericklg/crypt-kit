@@ -698,3 +698,20 @@ describe('header actions', () => {
     expect(head.indexOf('Watchlist')).toBeLessThan(head.indexOf('Summon'));
   });
 });
+
+describe('review requests', () => {
+  it('shows an assistant’s review request and its note in the drawer, with approval still the user’s', () => {
+    const v = views();
+    v[0] = { ...v[0]!, approvalRequest: { note: 'The reporter confirmed the fix on 2.5.0.', at: NOW } };
+    render(<Board theme={theme} haunts={v} score={0} weeklyGoal={20} now={NOW} actions={fakeActions().actions} defaultOpenKey="a#1" />);
+    const drawer = document.querySelector<HTMLElement>('.ck-drawer')!;
+    expect(within(drawer).getByText('Your assistant asked you to review this')).toBeTruthy();
+    expect(within(drawer).getByText('The reporter confirmed the fix on 2.5.0.')).toBeTruthy();
+    expect(within(drawer).getByText('Nothing happens until you press Banish.')).toBeTruthy();
+  });
+
+  it('shows nothing extra without one', () => {
+    render(<Board theme={theme} haunts={views()} score={0} weeklyGoal={20} now={NOW} actions={fakeActions().actions} defaultOpenKey="a#1" />);
+    expect(screen.queryByText('Your assistant asked you to review this')).toBeNull();
+  });
+});

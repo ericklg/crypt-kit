@@ -1,0 +1,13 @@
+import type { FixtureRoute } from '@crypt-kit/core/testing';
+
+/** What the detector reports when no source URL is set: the demo board's data. */
+export const SAMPLE_ITEMS = [
+  { id: 'item-1', title: 'First thing worth a look', value: 42, url: 'https://example.com/item-1' },
+  { id: 'item-2', title: 'Second thing worth a look', value: 18, url: 'https://example.com/item-2' },
+  { id: 'item-3', title: 'Something still fine', value: 3, url: 'https://example.com/item-3' },
+];
+
+export const FEED_URL = 'https://feed.example.com/items.json';
+
+/** A recorded response for the contract test. Replace with a real recording of your source. */
+export const recordedRoutes: FixtureRoute[] = [{ match: FEED_URL, body: SAMPLE_ITEMS }];

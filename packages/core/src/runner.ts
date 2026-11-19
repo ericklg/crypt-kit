@@ -118,6 +118,13 @@ export interface Runner<P> {
    */
   settle(key: string, outcome: SettleOutcome): Promise<OperationResult<P>>;
   list(status?: readonly HauntStatus[]): Promise<Haunt<P>[]>;
+  /** One haunt of this runner's detector, or null. */
+  get(key: string): Promise<Haunt<P> | null>;
+  /**
+   * Asks the user to review a drafted haunt: it's flagged on the board with `note`. Never
+   * runs the action. Approving is still only `approve()`, which an assistant isn't given.
+   */
+  requestApproval(key: string, note: string): Promise<OperationResult<P>>;
 }
 
 /** Open statuses whose draft (or failed draft) was written for one specific payload. */
@@ -147,6 +154,8 @@ function locksFor(store: TrackerStore): Set<string> {
 
 const APPROVABLE: readonly HauntStatus[] = ['drafted', 'action_failed'];
 const REDRAFTABLE: readonly HauntStatus[] = ['drafted', 'draft_failed'];
+/** Longest note a review request may carry. */
+const MAX_REQUEST_NOTE = 500;
 const SPARABLE: readonly HauntStatus[] = [...OPEN_STATUSES, 'drafting'];
 
 
@@ -246,6 +255,9 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
    */
   async function write(prev: Haunt<P> | null, next: Haunt<P>): Promise<Haunt<P> | null> {
     const haunt: Haunt<P> = { ...next, version: (prev?.version ?? 0) + 1 };
+    // A review request is about the haunt as it was; any status change (drafting,
+    // approving, spared, …) ends it.
+    if (!prev || prev.status !== haunt.status) haunt.approvalRequest = null;
     const saved = await store.put(haunt as Haunt, prev ? prev.version : null);
     if (!saved) log.info('write conflict, skipped', { detector: detector.id, key: haunt.key });
     return saved ? haunt : null;
@@ -725,6 +737,20 @@ export function createRunner<P>(options: RunnerOptions<P>): Runner<P> {
     async list(status) {
       const haunts = await store.list(status ? { detectorId: detector.id, status } : { detectorId: detector.id });
       return haunts as Haunt<P>[];
+    },
+
+    async get(key) {
+      return load(key);
+    },
+
+    requestApproval(key, note) {
+      return operate(key, APPROVABLE, async (haunt) => {
+        if (!haunt.draft) return fail('not_allowed', 'Haunt has no draft to review', haunt);
+        const text = typeof note === 'string' ? note.trim().slice(0, MAX_REQUEST_NOTE) : '';
+        const at = now().toISOString();
+        const saved = await write(haunt, { ...haunt, approvalRequest: { at, note: text }, updatedAt: at });
+        return saved ? { ok: true, haunt: saved } : fail('conflict', CONFLICT_MESSAGE, haunt);
+      });
     },
   };
 }

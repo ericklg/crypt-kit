@@ -64,6 +64,12 @@ export interface Haunt<P = unknown> {
    * runner honors the claimer's deadline, whatever its own config. Null otherwise.
    */
   claimExpiresAt: string | null;
+  /**
+   * Set when an assistant (e.g. Kiro through the MCP server) asks the user to review this
+   * haunt. Only a request: nothing runs until the user approves on the board. Any status
+   * change clears it. Optional because haunts stored before it existed lack it.
+   */
+  approvalRequest?: { at: string; note: string } | null;
   firstSeenAt: string;
   lastSeenAt: string;
   updatedAt: string;
