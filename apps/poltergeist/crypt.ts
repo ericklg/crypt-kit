@@ -1,20 +1,33 @@
 import 'server-only';
 import { createAiAgent, modelFromEnv } from '@crypt-kit/agent';
 import { createRunner, type Runner } from '@crypt-kit/core';
-import { createSqliteKeyValue, createSqliteStore, DEFAULT_DATABASE_URL } from '@crypt-kit/store-sqlite';
+import {
+  createSqliteKeyValue,
+  createSqliteStore,
+  createSqliteWatchlist,
+  DEFAULT_DATABASE_URL,
+  type SqliteWatchlist,
+} from '@crypt-kit/store-sqlite';
 import { createOpenDealAction } from './actions/open-deal';
 import { loadConfig, type PoltergeistConfig } from './config';
 import { createPriceDropsDetector, type PriceDrop } from './detectors/price-drops';
 import { describePriceDrop, VERDICT_INSTRUCTIONS } from './prompt';
 import { createCheapSharkSource } from './sources/cheapshark';
-import { createFixtureSource } from './sources/fixture';
+import { createFixtureSource, FIXTURE_CATALOG } from './sources/fixture';
 import type { PriceSource } from './sources/price-source';
 
-// One runner, store and source (with its cache) per server process, built on first use
-// so a missing env var fails the request that needs it, not the build.
+// One runner, store, watchlist and source (with its cache) per server process, built on
+// first use so a missing env var fails the request that needs it, not the build.
 let config: PoltergeistConfig | null = null;
 let source: PriceSource | null = null;
+let watchlist: SqliteWatchlist | null = null;
 let runner: Runner<PriceDrop> | null = null;
+
+const dbUrl = () => process.env.CRYPT_DB_URL?.trim() || DEFAULT_DATABASE_URL;
+const db = () => {
+  const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
+  return { url: dbUrl(), ...(authToken ? { authToken } : {}) };
+};
 
 export function getConfig(): PoltergeistConfig {
   config ??= loadConfig();
@@ -22,32 +35,46 @@ export function getConfig(): PoltergeistConfig {
 }
 
 export function getSource(): PriceSource {
-  const c = getConfig();
   if (source) return source;
-  if (c.source === 'cheapshark') {
-    // Cache and rate-limit pause live in the database, so every instance shares them.
-    const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
-    const shared = createSqliteKeyValue({ url: dbUrl(), tableName: 'poltergeist_kv', ...(authToken ? { authToken } : {}) });
-    source = createCheapSharkSource({ contact: c.cheapsharkContact, shared });
-  } else {
-    source = createFixtureSource();
-  }
+  const c = getConfig();
+  // CheapShark's cache and rate-limit pause live in the database, so every instance shares them.
+  source =
+    c.source === 'cheapshark'
+      ? createCheapSharkSource({ contact: c.cheapsharkContact, shared: createSqliteKeyValue({ ...db(), tableName: 'poltergeist_kv' }) })
+      : createFixtureSource();
   return source;
 }
 
-const dbUrl = () => process.env.CRYPT_DB_URL?.trim() || DEFAULT_DATABASE_URL;
+/**
+ * The watched games, kept in the database and edited from the board's watchlist drawer.
+ * POLTERGEIST_WATCHLIST (or the demo list) seeds it once, the first time it's read.
+ */
+export function getWatchlist(): SqliteWatchlist {
+  if (watchlist) return watchlist;
+  const c = getConfig();
+  const titles = new Map(FIXTURE_CATALOG.map((q) => [q.itemId, q.title]));
+  watchlist = createSqliteWatchlist({
+    ...db(),
+    tableName: 'poltergeist_watchlist',
+    // Env entries have no titles; the drawer shows the source's current title instead.
+    seed: (s) => (s === c.source ? c.watchlist.map((i) => ({ source: s, itemId: i.itemId, title: titles.get(i.itemId) ?? '', target: i.target })) : []),
+  });
+  return watchlist;
+}
 
 export function getRunner(): Runner<PriceDrop> {
   if (runner) return runner;
-  const c = getConfig();
-  const url = dbUrl();
-  const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
+  const src = getSource();
   runner = createRunner<PriceDrop>({
-    detector: createPriceDropsDetector({ source: getSource(), watchlist: async () => c.watchlist }),
+    detector: createPriceDropsDetector({
+      source: src,
+      // Read on every poll, so drawer edits apply at the next price check.
+      watchlist: async () => (await getWatchlist().list(src.id)).map((e) => ({ itemId: e.itemId, target: e.target })),
+    }),
     agent: createAiAgent<PriceDrop>({ model: () => modelFromEnv(), instructions: VERDICT_INSTRUCTIONS, describe: describePriceDrop }),
     action: createOpenDealAction(),
     // Its own table, so Poltergeist and Exorcist can share one database.
-    store: createSqliteStore({ url, tableName: 'poltergeist_haunts', ...(authToken ? { authToken } : {}) }),
+    store: createSqliteStore({ ...db(), tableName: 'poltergeist_haunts' }),
   });
   return runner;
 }

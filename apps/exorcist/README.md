@@ -37,4 +37,4 @@ Then start the app with the same `CRYPT_DB_URL` and `EXORCIST_REPOS=acme/lantern
 - `detectors/stale-items.ts` lists open issues and PRs with no activity for N days, oldest first, keyed `owner/repo#number`. No model calls.
 - `prompt.ts` is the triage prompt: one short comment, and a close recommendation only when the thread shows the item is done.
 - `actions/comment-and-close.ts` posts the comment and closes the item only if you kept the close option. Each comment carries a hidden marker, so a retried approval doesn't post twice.
-- `app/actions.ts` gates every action: access mode, then the password, then Vercel BotID.
+- `app/actions.ts` gates every action: access mode, then the password, then Vercel BotID. BotID runs only on Vercel, because it needs Vercel's OIDC token; elsewhere the password gate is the protection.

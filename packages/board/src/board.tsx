@@ -25,6 +25,11 @@ export interface BoardProps {
   now?: string;
   /** Open this haunt's drawer on first render. */
   defaultOpenKey?: string;
+  /**
+   * Extra controls for the header, before the run button (e.g. a watchlist button). They
+   * sit in the board's CSS scope, so `--ck-*` tokens and `ck-btn` classes apply.
+   */
+  headerActions?: ReactNode;
 }
 
 const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
@@ -39,7 +44,7 @@ export function paletteVars(palette: Palette): CSSProperties {
  * stats and HUD render on the server, and only the yard, drawer and run button hydrate.
  * Import '@crypt-kit/board/board.css' once in the app.
  */
-export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultOpenKey }: BoardProps) {
+export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultOpenKey, headerActions }: BoardProps) {
   const { creature } = theme;
   const copy = resolveCopy(theme.copy);
   const { ui } = copy;
@@ -66,6 +71,7 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
             <b>{score}</b>
             <span>{copy.scoreLabel}</span>
           </div>
+          {headerActions}
           <RunButton label={copy.run} ui={{ running: ui.running, runDone: ui.runDone, runFailed: ui.runFailed }} run={actions.run} />
         </div>
       </header>

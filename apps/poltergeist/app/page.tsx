@@ -3,10 +3,11 @@ import { Board } from '@crypt-kit/board';
 import { loadBoard } from '@crypt-kit/board/server';
 import { connection } from 'next/server';
 import { ConfigError } from '../config';
-import { getConfig, getRunner, getSource } from '../crypt';
+import { getConfig, getRunner, getSource, getWatchlist } from '../crypt';
 import { priceDropPresenter } from '../presenter';
 import { poltergeistTheme } from '../theme';
 import { approve, redraft, run, settle, spare } from './actions';
+import { WatchlistDrawer } from './watchlist-drawer';
 
 const WEEKLY_GOAL = 6;
 const actions = { approve, spare, redraft, settle, run };
@@ -15,10 +16,9 @@ export default async function Page() {
   // The board is live data: render it per request, never at build time.
   await connection();
 
-  let config;
   let runner;
   try {
-    config = getConfig();
+    getConfig(); // validates the env first, so its errors get the notice
     runner = getRunner();
   } catch (error) {
     // Only setup mistakes get the notice; anything else is a real error.
@@ -27,15 +27,20 @@ export default async function Page() {
   }
 
   const now = new Date();
-  const { haunts, score } = await loadBoard(runner, priceDropPresenter, { now });
+  const source = getSource();
+  const [{ haunts, score }, watched] = await Promise.all([
+    loadBoard(runner, priceDropPresenter, { now }),
+    getWatchlist().list(source.id),
+  ]);
   return (
     <Board
-      theme={poltergeistTheme(config.watchlist.length, getSource().name)}
+      theme={poltergeistTheme(watched.length, source.name)}
       haunts={haunts}
       score={score}
       weeklyGoal={WEEKLY_GOAL}
       actions={actions}
       now={now.toISOString()}
+      headerActions={<WatchlistDrawer sourceName={source.name === 'demo prices' ? 'demo data' : source.name} />}
     />
   );
 }

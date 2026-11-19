@@ -17,7 +17,20 @@ export const DEMO_WATCHLIST: readonly WatchItem[] = [
 
 const ITEM = /^[A-Za-z0-9-]{1,64}$/;
 /** The detector's supported price range (`priceDropSchema`). */
-const MAX_TARGET = 100_000;
+export const MAX_TARGET = 100_000;
+
+/** Whether the source can look this item up (so watching it can ever alert). */
+export function isKnownItem(source: PoltergeistConfig['source'], itemId: string): boolean {
+  return source === 'cheapshark' ? isCheapSharkGameId(itemId) : FIXTURE_CATALOG.some((q) => q.itemId === itemId);
+}
+
+/** A target as typed: dollars with at most two decimals, from 0 to MAX_TARGET. */
+export function parseTarget(input: string): number | null {
+  const s = input.trim().replace(/^\$/, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
+  const n = Number(s);
+  return n >= 0 && n <= MAX_TARGET ? n : null;
+}
 
 /** `612:8, 128:5.5` → watch items. Targets are USD. */
 const watchlist = z
@@ -27,8 +40,8 @@ const watchlist = z
     for (const part of s.split(',').map((p) => p.trim()).filter(Boolean)) {
       const fields = part.split(':').map((x) => x.trim());
       const [itemId = '', target = ''] = fields;
-      const price = Number(target);
-      if (fields.length !== 2 || !ITEM.test(itemId) || !/^\d+(\.\d{1,2})?$/.test(target) || !(price >= 0 && price <= MAX_TARGET)) {
+      const price = parseTarget(target);
+      if (fields.length !== 2 || !ITEM.test(itemId) || price === null || target.startsWith('$')) {
         ctx.addIssue({ code: 'custom', message: `"${part.slice(0, 40)}" isn't itemId:targetPrice with a target from 0 to ${MAX_TARGET}` });
         return z.NEVER;
       }
@@ -80,8 +93,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   }
   // IDs the source can't look up would be skipped silently, so the alert would never fire.
   const list = e.POLTERGEIST_WATCHLIST ?? DEMO_WATCHLIST;
-  const known = e.POLTERGEIST_SOURCE === 'cheapshark' ? isCheapSharkGameId : (id: string) => FIXTURE_CATALOG.some((q) => q.itemId === id);
-  const unknown = list.filter((i) => !known(i.itemId)).map((i) => i.itemId.slice(0, 40));
+  const unknown = list.filter((i) => !isKnownItem(e.POLTERGEIST_SOURCE, i.itemId)).map((i) => i.itemId.slice(0, 40));
   if (unknown.length) {
     const what = e.POLTERGEIST_SOURCE === 'cheapshark' ? 'CheapShark game IDs are 1–10 digits' : 'the fixture source has no such games';
     throw new ConfigError(`Price Poltergeist is misconfigured: POLTERGEIST_WATCHLIST: ${what}: ${unknown.join(', ')}`);

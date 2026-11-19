@@ -687,3 +687,14 @@ describe('approve opens a link', () => {
     open.mockRestore();
   });
 });
+
+describe('header actions', () => {
+  it('renders app controls in the header, before the run button', () => {
+    const html = renderToString(
+      <Board theme={theme} haunts={views()} score={0} weeklyGoal={20} now={NOW} actions={fakeActions().actions} headerActions={<button type="button">Watchlist</button>} />,
+    );
+    const head = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(head.indexOf('Watchlist')).toBeGreaterThan(-1);
+    expect(head.indexOf('Watchlist')).toBeLessThan(head.indexOf('Summon'));
+  });
+});

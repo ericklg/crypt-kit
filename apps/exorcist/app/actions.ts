@@ -14,6 +14,9 @@ import { getConfig, getRunner } from '../crypt';
 async function guard(): Promise<void> {
   const refusal = checkBoardAccess(getConfig(), (await headers()).get('authorization'));
   if (refusal) throw new BoardAccessError(refusal);
+  // BotID runs only on Vercel (it needs Vercel's OIDC token); elsewhere the access gate
+  // above is the protection.
+  if (!process.env.VERCEL) return;
   const verdict = await checkBotId();
   if (verdict.isBot) throw new BoardAccessError('This request looked automated, so it was refused.');
 }

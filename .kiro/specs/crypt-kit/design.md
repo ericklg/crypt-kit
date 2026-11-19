@@ -235,7 +235,7 @@ The server exposes these tools: `list_haunts`, `get_haunt`, `redraft_haunt`, and
 ## Security
 
 - Secrets live in env vars only. The GitHub token is fine-grained and limited to the configured repos.
-- Every form and route that triggers an action is protected by Vercel BotID, with the server action as the first gate.
+- Every form and route that triggers an action is protected by Vercel BotID, with the server action as the first gate. BotID's server check needs Vercel's OIDC token, so off Vercel (local `next start`, self-hosting) it's skipped and the access gate (password or public demo) is the protection.
 - The public demo runs Exorcist against a sandbox repo the kit owns, and Poltergeist against fixtures. No real user tokens are involved.
 
 ## Open questions

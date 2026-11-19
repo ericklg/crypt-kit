@@ -279,3 +279,121 @@ export function createSqliteKeyValue(options: SqliteKeyValueOptions = {}): Sqlit
     },
   };
 }
+
+/** One watched item: an app's source ID, the item's ID there, and the user's threshold. */
+export interface WatchEntry {
+  source: string;
+  itemId: string;
+  /** Display name as the source gave it when the item was added. */
+  title: string;
+  target: number;
+  addedAt: string;
+}
+
+/** The items an app watches, per source. Shared by every process on the same database. */
+export interface SqliteWatchlist {
+  /** Entries for one source, oldest first. Seeds the list from `seed` the first time. */
+  list(source: string): Promise<WatchEntry[]>;
+  /** Adds or updates an entry (by source and item ID). */
+  put(entry: Omit<WatchEntry, 'addedAt'>): Promise<void>;
+  /** Changes an existing entry's target. False when it isn't watched. */
+  setTarget(source: string, itemId: string, target: number): Promise<boolean>;
+  /** False when it wasn't watched. */
+  remove(source: string, itemId: string): Promise<boolean>;
+  close(): void;
+}
+
+export interface SqliteWatchlistOptions extends Omit<SqliteStoreOptions, 'tableName'> {
+  /** Same naming rules as the haunts table. Default `crypt_watchlist`. */
+  tableName?: string;
+  /** Entries to start a source's list with, used once while the table has none for it. */
+  seed?: (source: string) => ReadonlyArray<Omit<WatchEntry, 'addedAt'>>;
+  now?: () => Date;
+}
+
+/** A watchlist table (e.g. Poltergeist's games and target prices). */
+export function createSqliteWatchlist(options: SqliteWatchlistOptions = {}): SqliteWatchlist {
+  const table = options.tableName ?? 'crypt_watchlist';
+  const problem = invalidTableName(table);
+  if (problem) throw new Error(`Invalid table name ${JSON.stringify(table)}: ${problem}`);
+  const now = options.now ?? (() => new Date());
+  const ownsClient = !options.client;
+  const client =
+    options.client ??
+    createClient(
+      options.authToken
+        ? { url: options.url ?? DEFAULT_DATABASE_URL, authToken: options.authToken }
+        : { url: options.url ?? DEFAULT_DATABASE_URL },
+    );
+  const t = `"${table}"`;
+  // Seeding is remembered per source, so removing every item doesn't bring the seed back.
+  const seeds = `"${table}__seeded"`;
+  let ready: Promise<void> | null = null;
+  const migrate = () =>
+    (ready ??= client
+      .batch(
+        [
+          `create table if not exists ${t} (source text not null, item_id text not null, title text not null,
+             target real not null, added_at text not null, primary key (source, item_id))`,
+          `create table if not exists ${seeds} (source text primary key)`,
+        ],
+        'write',
+      )
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        ready = null;
+        throw error;
+      }));
+
+  const toEntry = (row: Row): WatchEntry => ({
+    source: String(row.source),
+    itemId: String(row.item_id),
+    title: String(row.title),
+    target: Number(row.target),
+    addedAt: String(row.added_at),
+  });
+
+  return {
+    async list(source) {
+      await migrate();
+      const seed = options.seed?.(source) ?? [];
+      if (seed.length) {
+        const at = now().toISOString();
+        // Single statements, like the haunt store: insert only while the source isn't marked
+        // seeded, then mark it. If two instances overlap, the primary key drops repeats, and
+        // once marked, emptying the list never brings the seed back.
+        await client.execute({
+          sql: `insert into ${t} (source, item_id, title, target, added_at)
+                select * from (values ${seed.map(() => '(?, ?, ?, ?, ?)').join(', ')})
+                where not exists (select 1 from ${seeds} where source = ?)
+                on conflict do nothing`,
+          args: [...seed.flatMap((e) => [source, e.itemId, e.title, e.target, at] as InValue[]), source],
+        });
+        await client.execute({ sql: `insert into ${seeds} (source) values (?) on conflict do nothing`, args: [source] });
+      }
+      const result = await client.execute({ sql: `select * from ${t} where source = ? order by added_at, item_id`, args: [source] });
+      return result.rows.map(toEntry);
+    },
+    async put(entry) {
+      await migrate();
+      await client.execute({
+        sql: `insert into ${t} (source, item_id, title, target, added_at) values (?, ?, ?, ?, ?)
+              on conflict (source, item_id) do update set title = excluded.title, target = excluded.target`,
+        args: [entry.source, entry.itemId, entry.title, entry.target, now().toISOString()],
+      });
+    },
+    async setTarget(source, itemId, target) {
+      await migrate();
+      const result = await client.execute({ sql: `update ${t} set target = ? where source = ? and item_id = ?`, args: [target, source, itemId] });
+      return result.rowsAffected > 0;
+    },
+    async remove(source, itemId) {
+      await migrate();
+      const result = await client.execute({ sql: `delete from ${t} where source = ? and item_id = ?`, args: [source, itemId] });
+      return result.rowsAffected > 0;
+    },
+    close() {
+      if (ownsClient) client.close();
+    },
+  };
+}

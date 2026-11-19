@@ -10,7 +10,7 @@ Prices come from [CheapShark](https://www.cheapshark.com/) (no API key). Its usa
 | --- | --- | --- |
 | `CRYPT_MODEL_ID` | for verdicts | Model for verdicts. See `@crypt-kit/agent` (`CRYPT_MODEL_PROVIDER`, credentials). Without it the board still loads, and new verdicts fail with a message naming it |
 | `POLTERGEIST_SOURCE` | no | `fixture` (default: demo prices, no network) or `cheapshark` (live) |
-| `POLTERGEIST_WATCHLIST` | for `cheapshark` | `gameId:target` pairs, e.g. `612:3, 128:15.50`. Game IDs are CheapShark's. A target of `0` alerts when a game is free |
+| `POLTERGEIST_WATCHLIST` | for `cheapshark` | `gameId:target` pairs, e.g. `612:3, 128:15.50`, that start the watchlist the first time it's read. After that, edit it from the board's Watchlist drawer. Game IDs are CheapShark's. A target of `0` alerts when a game is free |
 | `CHEAPSHARK_CONTACT` | no | Added to the User-Agent CheapShark sees, e.g. an email |
 | `CRYPT_BOARD_PASSWORD` | one of these two | At least 12 characters. The browser asks for it, and every action checks it |
 | `CRYPT_PUBLIC_DEMO=1` | one of these two | Anyone may act. Fine with fixture prices |
@@ -41,3 +41,5 @@ Then start the app with the same `CRYPT_DB_URL`.
 - `prompt.ts` asks for "Buy now." or "Wait." with a short reason, using the historic low when there is one.
 - `actions/open-deal.ts` hands the board the CheapShark redirect link, which the board opens in a new tab. It never fetches the link.
 - Prices are checked once a day by cron (Vercel Hobby's limit) and whenever you press Check prices.
+- The **Watchlist** button opens a drawer (mockup A in `mockups/watchlist/`) to search for games, set targets and stop watching. New games start with a target 20% under today's price. The list lives in the database (`poltergeist_watchlist`), and changes apply at the next price check.
+- Every action, the drawer's included, goes through `app/guard.ts`: the access mode and password, then BotID. BotID runs only on Vercel, because it needs Vercel's OIDC token; elsewhere the password gate is the protection.

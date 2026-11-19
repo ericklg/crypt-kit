@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   authorization: null as string | null,
@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
 }));
 const refresh = vi.hoisted(() => vi.fn());
 
+vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({ headers: async () => new Headers(state.authorization ? { authorization: state.authorization } : {}) }));
 vi.mock('botid/server', () => ({ checkBotId: async () => ({ isBot: state.isBot }) }));
 vi.mock('next/cache', () => ({ refresh }));
@@ -20,7 +21,9 @@ const { approve, run } = await import('./actions');
 const edits = { proposal: 'Buy now.', options: {}, revision: 2 };
 
 describe('server actions', () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
+    vi.stubEnv('VERCEL', '1'); // BotID only runs on Vercel
     state.config = { boardPassword: null, publicDemo: false };
     state.isBot = false;
     state.runner.approve.mockClear();
@@ -44,6 +47,15 @@ describe('server actions', () => {
     state.isBot = true;
     expect(await approve('cheapshark:612@2.99', edits)).toMatchObject({ ok: false, message: expect.stringMatching(/automated/) });
     expect(state.runner.approve).not.toHaveBeenCalled();
+  });
+
+  it('skips BotID off Vercel, where it can’t run, and keeps the access gate', async () => {
+    vi.stubEnv('VERCEL', '');
+    state.isBot = true; // would refuse if BotID were consulted
+    state.config = { boardPassword: null, publicDemo: true };
+    expect(await approve('cheapshark:612@2.99', edits)).toMatchObject({ ok: true });
+    state.config = { boardPassword: null, publicDemo: false };
+    expect(await approve('cheapshark:612@2.99', edits)).toMatchObject({ ok: false, message: expect.stringMatching(/Actions are off/) });
   });
 
   it('explains a failed price check in plain words', async () => {
