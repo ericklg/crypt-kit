@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { fill } from './copy.js';
 import { HauntDetail, type DraftEdits, type Pending } from './detail.js';
 import { Icon } from './icons.js';
 import { APPROVABLE, SPARABLE, StatusPill } from './status.js';
@@ -17,10 +18,22 @@ export interface YardProps {
   defaultOpenKey?: string | null;
   /** Theme motion setting; `reduced` skips the leave animation delay. */
   motion: 'full' | 'reduced';
+  /** Approve opens the result's link in a new tab. See `BoardTheme.approveOpensLink`. */
+  opensLink?: boolean;
 }
 
 type Leave = 'approve' | 'spare';
 type Toast = { id: number; message: string; tone: 'ok' | 'fail' };
+
+/** Only https links from the server are opened. */
+function safeLink(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Leave animation length; matches .ck-grave's opacity/transform transition in board.css. */
 const LEAVE_MS = 450;
@@ -49,7 +62,7 @@ function prefersReducedMotion(): boolean {
  * The interactive part of the board: the graves, the haunt drawer, toasts and keyboard
  * shortcuts. Shortcuts only fire while focus is inside this component (WCAG 2.1.4).
  */
-export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpenKey = null, motion }: YardProps) {
+export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpenKey = null, motion, opensLink = false }: YardProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(() => defaultOpenKey ?? views[0]?.key ?? null);
   const [open, setOpen] = useState(() => defaultOpenKey !== null && views.some((v) => v.key === defaultOpenKey));
   const [leaving, setLeaving] = useState<ReadonlyMap<string, Leave>>(new Map());
@@ -67,6 +80,12 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   /** In-flight op per key. A Map, since finding keys are arbitrary strings ("toString"). */
   const [pending, setPending] = useState<ReadonlyMap<string, Exclude<Pending, null>>>(new Map());
   const [toast, setToast] = useState<Toast | null>(null);
+  /**
+   * Deal links whose tab the browser blocked. Kept apart from the passing message, and until
+   * each is used or dismissed: its haunt has left the board, so this is the only way to it.
+   */
+  const [blocked, setBlocked] = useState<ReadonlyArray<{ id: number; href: string; title: string }>>([]);
+  const dropBlocked = (id: number) => setBlocked((list) => list.filter((b) => b.id !== id));
   const [now, setNow] = useState(() => Date.parse(nowProp));
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -224,6 +243,9 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     setSelectedKey(key);
     setLeaving((m) => new Map(m).set(key, kind));
     focusNext.current = parkedOn;
+    // Opened now, inside the click or key press, because a tab opened after the server
+    // answers is blocked as a popup. It's pointed at the link, or closed, once we know.
+    const tab = kind === 'approve' && opensLink ? window.open('', '_blank') : null;
 
     run(
       key,
@@ -249,6 +271,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
         });
         // Only take focus back if the user hasn't moved it since.
         if (!res.ok) {
+          tab?.close();
           if (stillParked()) focusNext.current = key;
           return;
         }
@@ -256,6 +279,19 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
         setTombstones((t) => new Map(t).set(key, view.revision));
         setSelectedKey((cur) => (cur === key ? next : cur));
         if (stillParked()) focusNext.current = next ?? '@yard';
+        if (kind === 'approve' && opensLink) {
+          const href = safeLink(res.url);
+          if (href && tab && !tab.closed) {
+            tab.opener = null; // the deal page gets no handle on the board
+            tab.location.replace(href);
+          } else {
+            tab?.close();
+            if (href) {
+              setBlocked((list) => [...list, { id: Date.now() + Math.random(), href, title: view.title }]);
+              return;
+            }
+          }
+        }
         showToast(kind === 'approve' ? copy.approved : copy.spared);
       },
     );
@@ -381,7 +417,19 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
           />
         ) : null}
       </aside>
-      <div aria-live="polite">
+      <div className="ck-toasts" aria-live="polite">
+        {blocked.map((b) => (
+          <div className="ck-toast" data-tone="fail" role="alert" key={b.id}>
+            <Icon name="alert" />
+            <span>{fill(copy.ui.linkBlocked, { title: b.title })}</span>
+            <a className="ck-link" href={b.href} target="_blank" rel="noopener noreferrer" onClick={() => dropBlocked(b.id)}>
+              {copy.ui.openLink}
+            </a>
+            <button className="ck-btn ck-btn-ghost" type="button" onClick={() => dropBlocked(b.id)} aria-label={copy.ui.dismiss}>
+              <Icon name="x" />
+            </button>
+          </div>
+        ))}
         {toast ? (
           <div className="ck-toast" data-tone={toast.tone} role={toast.tone === 'fail' ? 'alert' : 'status'}>
             <Icon name={toast.tone === 'fail' ? 'alert' : 'check'} />

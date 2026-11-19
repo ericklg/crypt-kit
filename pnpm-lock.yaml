@@ -216,6 +216,52 @@ importers:
         specifier: ^19.3.0
         version: 19.3.0(@types/react@19.3.0)
 
+  apps/poltergeist:
+    dependencies:
+      '@crypt-kit/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
+      '@crypt-kit/board':
+        specifier: workspace:*
+        version: link:../../packages/board
+      '@crypt-kit/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@crypt-kit/store-sqlite':
+        specifier: workspace:*
+        version: link:../../packages/store-sqlite
+      botid:
+        specifier: ^1.5.13
+        version: 1.5.13(next@16.4.6(@types/node@26.6.6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
+      next:
+        specifier: ^16.4.6
+        version: 16.4.6(@types/node@26.6.6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.3.1
+        version: 19.3.1(react@19.3.1)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: ^31.0.1
+        version: 31.0.1
+
   packages/agent:
     dependencies:
       '@ai-sdk/amazon-bedrock':

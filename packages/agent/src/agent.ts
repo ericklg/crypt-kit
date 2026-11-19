@@ -3,8 +3,13 @@ import { z } from 'zod';
 import type { Agent, AgentContext, Draft, Finding } from '@crypt-kit/core';
 
 export interface AiAgentOptions<P> {
-  /** A provider model (e.g. `bedrock('<model id>')`) or an AI Gateway model ID string. See `modelFromEnv`. */
-  model: LanguageModel;
+  /**
+   * A provider model (e.g. `bedrock('<model id>')`) or an AI Gateway model ID string. See
+   * `modelFromEnv`. Pass a function (e.g. `modelFromEnv`) to resolve it on the first draft,
+   * so a board that only reads haunts runs without model settings; a missing setting then
+   * shows up as that draft's error.
+   */
+  model: LanguageModel | (() => LanguageModel);
   /**
    * The app's instructions: what a good draft looks like for this kind of finding.
    * The kit adds its own rules about untrusted input after these.
@@ -79,11 +84,13 @@ export function createAiAgent<P>(settings: AiAgentOptions<P>): Agent<P> {
 
   const instructions = `${settings.instructions.trim()}\n\n${UNTRUSTED_INPUT_RULES}`;
   const describe = settings.describe ?? defaultDescribe;
+  let resolved: LanguageModel | null = typeof settings.model === 'function' ? null : settings.model;
+  const model = () => (resolved ??= (settings.model as () => LanguageModel)());
 
   return {
     async draft(finding: Finding<P>, ctx: AgentContext): Promise<Draft> {
       const { output } = await generateText({
-        model: settings.model,
+        model: model(),
         instructions,
         prompt: renderFinding(describe(finding)),
         output: Output.object({ schema }),

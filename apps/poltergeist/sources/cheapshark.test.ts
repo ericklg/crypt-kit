@@ -1,0 +1,222 @@
+import { fixtureFetch } from '@crypt-kit/core/testing';
+import { describe, expect, it } from 'vitest';
+import { CheapSharkRateLimitError, createCheapSharkSource } from './cheapshark';
+import { API, recordedCheapSharkRoutes, recordedGames } from './fixtures/cheapshark';
+
+const ctx = (fetch: typeof globalThis.fetch) => ({ fetch, signal: new AbortController().signal });
+
+describe('CheapShark source', () => {
+  it('quotes each game’s cheapest deal, with its historic low, store and redirect link', async () => {
+    const { fetch } = fixtureFetch(recordedCheapSharkRoutes);
+    const quotes = await createCheapSharkSource().quote(['612', '128', '167910'], ctx(fetch));
+    expect(quotes).toEqual([
+      {
+        itemId: '128',
+        title: 'BioShock',
+        price: 16.79,
+        currency: 'USD',
+        normalPrice: 19.99,
+        historicLow: 3.5,
+        store: 'GameBillet',
+        url: 'https://www.cheapshark.com/redirect?dealID=et8hm7BwoAPZnyJpSAAehTMKS7M1aPlbLKSZDWmUtEo%3D',
+      },
+      expect.objectContaining({ itemId: '167910', price: 2.99, store: 'WinGameStore', historicLow: 2.19 }),
+      expect.objectContaining({ itemId: '612', title: 'LEGO Batman', price: 2.99, historicLow: 2.28 }),
+    ]);
+  });
+
+  it('keeps the API’s already-encoded dealID as is', async () => {
+    const { fetch } = fixtureFetch(recordedCheapSharkRoutes);
+    const [, arkham] = await createCheapSharkSource().quote(['128', '167910'], ctx(fetch)).then((q) => q);
+    expect(arkham!.url).toBe('https://www.cheapshark.com/redirect?dealID=y7nEC%2FMdMa4myBUYqzJ%2BN09pUxao0wE%2FOOLHOmEAmCM%3D');
+  });
+
+  it('sends a descriptive User-Agent with the optional contact', async () => {
+    const agents: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      agents.push(new Request(input, init).headers.get('user-agent') ?? '');
+      return Response.json([]);
+    };
+    await createCheapSharkSource({ contact: 'ops@example.com' }).search('batman', ctx(fetch));
+    expect(agents[0]).toBe('CryptKit-PricePoltergeist/0.1 (+https://github.com/ericklg/crypt-kit) ops@example.com');
+  });
+
+  it('serves repeat calls from its cache for an hour', async () => {
+    let t = 0;
+    const { fetch, calls } = fixtureFetch(recordedCheapSharkRoutes);
+    const source = createCheapSharkSource({ now: () => t });
+    await source.quote(['612', '128', '167910'], ctx(fetch));
+    await source.quote(['167910', '612', '128'], ctx(fetch)); // same set, any order
+    expect(calls.length).toBe(2); // stores + one games lookup
+    t = 60 * 60 * 1000 + 1;
+    await source.quote(['612', '128', '167910'], ctx(fetch));
+    expect(calls.filter((c) => c.url.includes('/games')).length).toBe(2);
+  });
+
+  it('keeps a bounded in-memory cache, newest entries kept', async () => {
+    let calls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return Response.json([]);
+    };
+    const source = createCheapSharkSource({ now: () => 0 });
+    for (let i = 0; i < 205; i++) await source.search(`game ${i}`, ctx(fetch));
+    expect(calls).toBe(205);
+    await source.search('game 204', ctx(fetch)); // recent: still cached
+    expect(calls).toBe(205);
+    await source.search('game 0', ctx(fetch)); // oldest: dropped past the cap
+    expect(calls).toBe(206);
+  });
+
+  it('sends one request at a time', async () => {
+    let inFlight = 0;
+    let most = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      most = Math.max(most, ++inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return Response.json([]);
+    };
+    const source = createCheapSharkSource();
+    await Promise.all(['a', 'b', 'c', 'd'].map((q) => source.search(`batman ${q}`, ctx(fetch))));
+    expect(most).toBe(1);
+  });
+
+  it('asks for at most 25 games per lookup, in a stable order so the cache hits', async () => {
+    const urls: string[] = [];
+    const fetch: typeof globalThis.fetch = async (input) => {
+      urls.push(String(input));
+      return Response.json(String(input).endsWith('/stores') ? [] : {});
+    };
+    const ids = Array.from({ length: 30 }, (_, i) => String(1000 + i));
+    await createCheapSharkSource().quote(ids, ctx(fetch));
+    const lookups = urls.filter((u) => u.includes('/games?ids='));
+    expect(lookups.map((u) => new URL(u).searchParams.get('ids')!.split(',').length)).toEqual([25, 5]);
+
+    const one = fixtureFetch(recordedCheapSharkRoutes);
+    await createCheapSharkSource().quote(['612', '128', '167910'], ctx(one.fetch));
+    expect(one.calls.at(-1)!.url).toBe(`${API}/games?ids=128,167910,612`);
+  });
+
+  it('stops calling after a 429 until Retry-After has passed, and fails the poll', async () => {
+    let t = 0;
+    let calls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return new Response('slow down', { status: 429, headers: { 'retry-after': '120' } });
+    };
+    const source = createCheapSharkSource({ now: () => t });
+    await expect(source.search('batman', ctx(fetch))).rejects.toBeInstanceOf(CheapSharkRateLimitError);
+    t = 119_000;
+    await expect(source.search('hades', ctx(fetch))).rejects.toBeInstanceOf(CheapSharkRateLimitError);
+    expect(calls).toBe(1);
+    t = 121_000;
+    await expect(source.search('hades', ctx(fetch))).rejects.toBeInstanceOf(CheapSharkRateLimitError);
+    expect(calls).toBe(2);
+  });
+
+  it('fails a quote when the lookup fails, and only leaves store names out when the store list does', async () => {
+    const down = fixtureFetch([{ match: `${API}/stores`, body: recordedCheapSharkRoutes[0]!.body }, { match: /\/games\?ids=/, status: 503, body: {} }]);
+    await expect(createCheapSharkSource().quote(['612'], ctx(down.fetch))).rejects.toThrow('CheapShark returned 503 for /games');
+
+    const noStores = fixtureFetch([{ match: `${API}/stores`, status: 500, body: {} }, { match: `${API}/games?ids=612`, body: { '612': recordedGames['612'] } }]);
+    const [lego] = await createCheapSharkSource().quote(['612'], ctx(noStores.fetch));
+    expect(lego).toMatchObject({ itemId: '612', price: 2.99, store: null });
+  });
+
+  it('keeps the last store names when a later store refresh fails, so payloads don’t change', async () => {
+    let t = 0;
+    let storesUp = true;
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith('/stores')) return storesUp ? Response.json(recordedCheapSharkRoutes[0]!.body) : new Response('down', { status: 500 });
+      return Response.json({ '612': recordedGames['612'] });
+    };
+    const source = createCheapSharkSource({ now: () => t });
+    const [before] = await source.quote(['612'], ctx(fetch));
+    storesUp = false;
+    t = 25 * 60 * 60 * 1000; // both caches expired
+    const [after] = await source.quote(['612'], ctx(fetch));
+    expect(before!.store).toBe('WinGameStore');
+    expect(after).toEqual(before);
+  });
+
+  it('shares its cache and a 429 pause with other instances through shared state', async () => {
+    const values = new Map<string, { value: string; expires: number }>();
+    let t = 0;
+    const shared = {
+      get: async (k: string) => {
+        const v = values.get(k);
+        return v && v.expires > t ? v.value : null;
+      },
+      set: async (k: string, value: string, ttl: number) => void values.set(k, { value, expires: t + ttl }),
+    };
+    let calls = 0;
+    let limited = false;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return limited ? new Response('slow down', { status: 429, headers: { 'retry-after': '60' } }) : Response.json([]);
+    };
+    const one = createCheapSharkSource({ shared, now: () => t });
+    const two = createCheapSharkSource({ shared, now: () => t }); // another server instance
+    await one.search('batman', ctx(fetch));
+    await two.search('batman', ctx(fetch));
+    expect(calls).toBe(1); // the second instance used the shared cache
+
+    limited = true;
+    await expect(one.search('hades', ctx(fetch))).rejects.toBeInstanceOf(CheapSharkRateLimitError);
+    await expect(two.search('celeste', ctx(fetch))).rejects.toBeInstanceOf(CheapSharkRateLimitError);
+    expect(calls).toBe(2); // the second instance honored the first one's pause
+    t = 61_000;
+    limited = false;
+    await expect(two.search('celeste', ctx(fetch))).resolves.toEqual([]);
+  });
+
+  it('lets a shared entry expire when it was written, not when another instance read it', async () => {
+    const values = new Map<string, { value: string; expires: number }>();
+    let t = 0;
+    const shared = {
+      get: async (k: string) => {
+        const v = values.get(k);
+        return v && v.expires > t ? v.value : null;
+      },
+      set: async (k: string, value: string, ttl: number) => void values.set(k, { value, expires: t + ttl }),
+    };
+    let calls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return Response.json([]);
+    };
+    const one = createCheapSharkSource({ shared, now: () => t });
+    const two = createCheapSharkSource({ shared, now: () => t });
+    await one.search('batman', ctx(fetch)); // written at 0, expires at 1 h
+    t = 59 * 60_000;
+    await two.search('batman', ctx(fetch)); // read from the shared cache
+    t = 61 * 60_000;
+    await two.search('batman', ctx(fetch));
+    expect(calls).toBe(2); // fetched again just after the original hour
+  });
+
+  it('skips unknown games, non-numeric IDs and deals with odd IDs', async () => {
+    const odd = { ...recordedGames['612'], deals: [{ ...recordedGames['612'].deals[0]!, dealID: 'abc"><script>' }] };
+    const { fetch, calls } = fixtureFetch([
+      { match: `${API}/stores`, body: [] },
+      { match: `${API}/games?ids=612,999`, body: { '612': odd, '999': null } },
+    ]);
+    expect(await createCheapSharkSource().quote(['612', '999', '../stores'], ctx(fetch))).toEqual([]);
+    expect(calls.every((c) => !c.url.includes('..'))).toBe(true);
+  });
+
+  it('searches by title, encoded, and returns each game’s cheapest deal', async () => {
+    const { fetch, calls } = fixtureFetch([
+      {
+        match: `${API}/games?title=lego%20batman%20%26%20co&limit=10`,
+        body: [{ gameID: '612', cheapest: '2.99', cheapestDealID: 'Dtzv5PHBf71720cIYjxx3oHvvZK3iHUbQjv6fWLVpd8%3D', external: 'LEGO Batman' }],
+      },
+    ]);
+    const hits = await createCheapSharkSource().search('  lego batman & co ', ctx(fetch));
+    expect(hits).toEqual([expect.objectContaining({ itemId: '612', title: 'LEGO Batman', price: 2.99 })]);
+    expect(calls).toHaveLength(1);
+    expect(await createCheapSharkSource().search('x', ctx(fetch))).toEqual([]); // too short: no request
+  });
+});

@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   authorization: null as string | null,
   isBot: false,
   config: { boardPassword: null as string | null, publicDemo: false },
-  runner: { spare: vi.fn(async () => ({ ok: true })), run: vi.fn(async () => ({ ok: true })) },
+  runner: { spare: vi.fn(async () => ({ ok: true, haunt: { result: null } })), run: vi.fn(async () => ({ ok: true })) },
 }));
 
 vi.mock('next/headers', () => ({ headers: async () => new Headers(state.authorization ? { authorization: state.authorization } : {}) }));
@@ -17,7 +17,9 @@ const { spare, run } = await import('./actions');
 const basic = (pass: string) => `Basic ${Buffer.from(`any:${pass}`).toString('base64')}`;
 
 describe('server action guard', () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
+    vi.stubEnv('VERCEL', '1'); // BotID only runs on Vercel
     state.authorization = null;
     state.isBot = false;
     state.config = { boardPassword: null, publicDemo: false };
@@ -52,6 +54,13 @@ describe('server action guard', () => {
   });
 
   it('lets anyone act in the public demo', async () => {
+    state.config = { boardPassword: null, publicDemo: true };
+    expect(await spare('acme/lantern#214')).toEqual({ ok: true });
+  });
+
+  it('skips BotID off Vercel, where it can’t run', async () => {
+    vi.stubEnv('VERCEL', '');
+    state.isBot = true; // would refuse if BotID were consulted
     state.config = { boardPassword: null, publicDemo: true };
     expect(await spare('acme/lantern#214')).toEqual({ ok: true });
   });

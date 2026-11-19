@@ -4,7 +4,8 @@ import type { HauntFact, HauntView } from './types.js';
 /** How an app describes one of its findings on the board. Runs on the server. */
 export interface Presenter<P> {
   meta(finding: Finding<P>): string;
-  age(finding: Finding<P>, now: Date): string;
+  /** e.g. "41 days quiet". `firstSeenAt` is when the kit first saw this haunt (ISO). */
+  age(finding: Finding<P>, now: Date, firstSeenAt: string): string;
   facts?(finding: Finding<P>): HauntFact[];
   headline?(finding: Finding<P>): HauntView['headline'];
 }
@@ -43,7 +44,7 @@ export function toHauntView<P>(haunt: Haunt<P>, present: Presenter<P>, options: 
     severity: finding.severity,
     title: finding.title,
     meta: present.meta(finding),
-    age: present.age(finding, now),
+    age: present.age(finding, now, haunt.firstSeenAt),
     url: finding.url,
     facts: present.facts?.(finding) ?? [],
     headline: present.headline?.(finding) ?? null,

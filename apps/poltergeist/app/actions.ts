@@ -1,0 +1,43 @@
+'use server';
+
+import type { ApproveEdits, BoardActions } from '@crypt-kit/board';
+import { createBoardActions } from '@crypt-kit/board/server';
+import { refresh } from 'next/cache';
+import { getRunner } from '../crypt';
+import { guard } from './guard';
+
+let actions: BoardActions | null = null;
+const board = () =>
+  (actions ??= createBoardActions(getRunner, {
+    guard,
+    messages: { runFailed: 'Prices couldn’t be checked just now. Try again in a few minutes.' },
+  }));
+
+/** Sends the board fresh views after every operation, failed ones too. */
+async function andRefresh<T>(op: Promise<T>): Promise<T> {
+  try {
+    return await op;
+  } finally {
+    refresh();
+  }
+}
+
+export async function approve(key: string, edits: ApproveEdits) {
+  return andRefresh(board().approve(key, edits));
+}
+
+export async function spare(key: string) {
+  return andRefresh(board().spare(key));
+}
+
+export async function redraft(key: string) {
+  return andRefresh(board().redraft(key));
+}
+
+export async function settle(key: string, outcome: 'done' | 'not_done') {
+  return andRefresh(board().settle(key, outcome));
+}
+
+export async function run() {
+  return andRefresh(board().run());
+}

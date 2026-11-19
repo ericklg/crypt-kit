@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "typecheck": "tsc -b && tsc -p apps/exorcist",
+    "typecheck": "tsc -b && tsc -p apps/exorcist && tsc -p apps/poltergeist",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:related": "vitest related --run"

@@ -105,6 +105,12 @@ export interface UiCopy {
   running: string;
   runDone: string;
   runFailed: string;
+  /** Shown when approve should open a link but the browser blocked the new tab. `{title}` is the haunt's. */
+  linkBlocked: string;
+  /** Text of the link in that message. */
+  openLink: string;
+  /** Accessible name of the button that closes a message. */
+  dismiss: string;
   /** Shown when a request fails in transit: the server may or may not have acted. */
   unconfirmed: string;
 }
@@ -120,6 +126,12 @@ export interface BoardTheme {
   copy: BoardCopy;
   /** `reduced` turns animations off regardless of the OS setting. Default `full`. */
   motion?: 'full' | 'reduced';
+  /**
+   * Approving opens the action result's `url` in a new tab (e.g. a deal link). The tab is
+   * opened during the click, so browsers don't block it, and pointed at the link once the
+   * server confirms. Default false.
+   */
+  approveOpensLink?: boolean;
 }
 
 export interface HauntFact {
@@ -158,7 +170,8 @@ export interface HauntView {
   claimExpiresAt: string | null;
 }
 
-export type ActionOutcome = { ok: true } | { ok: false; message: string };
+/** `url`: where the action's result lives (a posted comment, a deal). Only https links are opened. */
+export type ActionOutcome = { ok: true; url?: string } | { ok: false; message: string };
 
 export interface ApproveEdits {
   proposal: string;

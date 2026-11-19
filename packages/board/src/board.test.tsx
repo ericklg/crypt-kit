@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Board } from './board.js';
+import type { BoardTheme } from './types.js';
 import { fakeActions, theme, views } from './test-fixtures.js';
 
 const NOW = '2026-11-18T12:00:00.000Z';
@@ -578,5 +579,122 @@ describe('review round 5', () => {
 
     fireEvent.keyDown(graveOf(container, 'a#3')!, { key: 'a' });
     expect(document.activeElement).toBe(graveOf(container, 'a#1')); // not a#2, which is fading out
+  });
+});
+
+describe('approve opens a link', () => {
+  const linkTheme = { ...theme, approveOpensLink: true };
+  const drawerOf = (c: HTMLElement) => c.querySelector<HTMLElement>('.ck-drawer')!;
+  const fakeTab = () => ({ closed: false, opener: {} as unknown, location: { replace: vi.fn() }, close: vi.fn() });
+  const render1 = (approve: () => Promise<{ ok: true; url?: string } | { ok: false; message: string }>, t: BoardTheme = linkTheme) =>
+    render(<Board theme={t} haunts={views()} score={0} weeklyGoal={20} actions={fakeActions({ approve }).actions} now={NOW} defaultOpenKey="a#1" />);
+
+  it('opens the tab during the click and points it at the link once the server confirms', async () => {
+    const tab = fakeTab();
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab as never);
+    const { container } = render1(async () => ({ ok: true, url: 'https://www.cheapshark.com/redirect?dealID=abc%3D' }));
+
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    expect(open).toHaveBeenCalledWith('', '_blank'); // synchronously, inside the click
+    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('https://www.cheapshark.com/redirect?dealID=abc%3D'));
+    expect(tab.opener).toBeNull();
+    expect(tab.close).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it('closes the tab when the approve fails', async () => {
+    const tab = fakeTab();
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab as never);
+    const { container } = render1(async () => ({ ok: false, message: 'Nope' }));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(tab.close).toHaveBeenCalled());
+    expect(tab.location.replace).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it('offers the link in the message when the browser blocked the tab', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { container } = render1(async () => ({ ok: true, url: 'https://example.com/deal' }));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('Your browser blocked the new tab for Crash on empty config.');
+    const link = within(alert).getByRole('link', { name: 'Open it here' }) as HTMLAnchorElement;
+    expect(link.href).toBe('https://example.com/deal');
+    expect(link.rel).toBe('noopener noreferrer');
+    open.mockRestore();
+  });
+
+  it('keeps the blocked-tab message until it’s used or dismissed', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { container } = render1(async () => ({ ok: true, url: 'https://example.com/deal' }));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await screen.findByRole('alert');
+    await act(() => new Promise((r) => setTimeout(r, 2800))); // past the normal message timeout
+    const alert = screen.getByRole('alert');
+    fireEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    open.mockRestore();
+  }, 10_000);
+
+  it('keeps each blocked link when later claims or spares show their own messages', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const urls: Record<string, string> = { 'a#1': 'https://example.com/one', 'a#2': 'https://example.com/two' };
+    const { container } = render(
+      <Board theme={linkTheme} haunts={views()} score={0} weeklyGoal={20} now={NOW}
+        actions={fakeActions({ approve: async (key: string) => ({ ok: true, url: urls[key]! }) }).actions} />,
+    );
+    const grave = (k: string) => [...container.querySelectorAll<HTMLElement>('[data-grave]')].find((el) => el.dataset.grave === k)!;
+
+    fireEvent.click(grave('a#1'));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(screen.getAllByRole('link', { name: 'Open it here' })).toHaveLength(1));
+    fireEvent.click(grave('a#2'));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(screen.getAllByRole('link', { name: 'Open it here' })).toHaveLength(2));
+    fireEvent.click(grave('a#3'));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Spare/ }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Spared'));
+
+    const links = screen.getAllByRole('link', { name: 'Open it here' }) as HTMLAnchorElement[];
+    expect(links.map((l) => l.href)).toEqual(['https://example.com/one', 'https://example.com/two']);
+    fireEvent.click(links[0]!);
+    expect((screen.getAllByRole('link', { name: 'Open it here' }) as HTMLAnchorElement[]).map((l) => l.href)).toEqual(['https://example.com/two']);
+    open.mockRestore();
+  });
+
+  it('never opens a non-https link', async () => {
+    const tab = fakeTab();
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab as never);
+    const { container } = render1(async () => ({ ok: true, url: 'javascript:alert(1)' }));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(tab.close).toHaveBeenCalled());
+    expect(tab.location.replace).not.toHaveBeenCalled();
+    expect(screen.queryByRole('link', { name: 'Open it here' })).toBeNull();
+    open.mockRestore();
+  });
+
+  it('opens nothing for themes without approveOpensLink, or on Spare', async () => {
+    const open = vi.spyOn(window, 'open');
+    const { container, unmount } = render1(async () => ({ ok: true, url: 'https://example.com' }), theme);
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Banished'));
+    unmount();
+
+    const again = render1(async () => ({ ok: true }));
+    fireEvent.click(within(drawerOf(again.container)).getByRole('button', { name: /Spare/ }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Spared'));
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+});
+
+describe('header actions', () => {
+  it('renders app controls in the header, before the run button', () => {
+    const html = renderToString(
+      <Board theme={theme} haunts={views()} score={0} weeklyGoal={20} now={NOW} actions={fakeActions().actions} headerActions={<button type="button">Watchlist</button>} />,
+    );
+    const head = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(head.indexOf('Watchlist')).toBeGreaterThan(-1);
+    expect(head.indexOf('Watchlist')).toBeLessThan(head.indexOf('Summon'));
   });
 });

@@ -199,3 +199,36 @@ describe('createAiAgent with the runner', () => {
     expect((await store.get(finding.key))?.status).toBe('draft_failed');
   });
 });
+
+describe('createAiAgent with a model function', () => {
+  it('resolves the model on the first draft and reuses it', async () => {
+    let calls = 0;
+    const agent = createAiAgent<Payload>({
+      model: () => {
+        calls++;
+        return modelReturning(goodDraft);
+      },
+      instructions: 'Triage stale issues.',
+      options: ['close'],
+    });
+    expect(calls).toBe(0); // creating the agent needs no model settings
+    await agent.draft(finding, { signal: new AbortController().signal });
+    await agent.draft(finding, { signal: new AbortController().signal });
+    expect(calls).toBe(1);
+  });
+
+  it('turns a missing model setting into that draft’s error, and tries again next time', async () => {
+    let configured = false;
+    const agent = createAiAgent<Payload>({
+      model: () => {
+        if (!configured) throw new Error('CRYPT_MODEL_ID is required');
+        return modelReturning(goodDraft);
+      },
+      instructions: 'Triage stale issues.',
+      options: ['close'],
+    });
+    await expect(agent.draft(finding, { signal: new AbortController().signal })).rejects.toThrow('CRYPT_MODEL_ID is required');
+    configured = true;
+    await expect(agent.draft(finding, { signal: new AbortController().signal })).resolves.toMatchObject({ proposal: goodDraft.proposal });
+  });
+});

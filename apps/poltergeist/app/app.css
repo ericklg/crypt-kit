@@ -1,0 +1,74 @@
+body {
+  margin: 0;
+  background: #120b10;
+}
+
+/* Shown instead of the board when env vars are missing (page.tsx). */
+.setup {
+  max-width: 40rem;
+  margin: 12vh auto;
+  padding: 0 24px;
+  color: #f6ecf2;
+  font: 16px/1.6 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.setup h1 {
+  font: 700 28px/1.2 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+}
+
+.setup code {
+  color: #ffb347;
+}
+
+/* Watchlist drawer (mockup A, mockups/watchlist). Inherits the board's --ck-* tokens. */
+.wl-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(520px, 100vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 28px 32px 32px;
+  overflow-y: auto;
+  border: 0;
+  border-left: 1px solid var(--ck-line);
+  background: var(--ck-bg2);
+  color: var(--ck-ink);
+  font: 15px/1.5 var(--ck-font-body);
+}
+.wl-drawer::backdrop { background: rgba(6, 3, 5, 0.6); }
+@media (prefers-reduced-motion: no-preference) {
+  .wl-drawer[open] { animation: wl-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+}
+@keyframes wl-in { from { transform: translateX(40px); opacity: 0; } }
+.wl-drawer h2 { font: 700 26px/1.15 var(--ck-font-display); margin: 0 48px 6px 0; }
+.wl-close { position: absolute; top: 18px; right: 18px; }
+.wl-note { color: var(--ck-muted); font-size: 13px; margin: 8px 0; }
+.wl-label { font: 600 11px/1 var(--ck-font-body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ck-muted); margin: 24px 0 10px; }
+.wl-field { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--ck-surface2); border: 1px solid var(--ck-line); }
+.wl-field:focus-within { border-color: var(--ck-accent); box-shadow: 0 0 0 3px var(--ck-glow); }
+.wl-field input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: inherit; font: inherit; }
+.wl-field input::placeholder { color: var(--ck-muted); }
+.wl-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.wl-item { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 12px; background: var(--ck-surface); border: 1px solid var(--ck-line); }
+.wl-item b { font-weight: 600; }
+.wl-meta { color: var(--ck-muted); font-size: 12.5px; }
+.wl-price { font: 700 16px/1 var(--ck-font-display); color: var(--ck-good); }
+.wl-meta .wl-price { font-size: 14px; }
+.wl-pill { font: 600 12px/1 var(--ck-font-body); padding: 6px 9px; border-radius: 999px; background: var(--ck-surface2); color: var(--ck-muted); }
+.wl-target label { display: inline-flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--ck-surface2); border: 1px solid var(--ck-line); font-size: 13px; }
+.wl-target label:focus-within { border-color: var(--ck-accent); }
+.wl-target input { width: 64px; background: none; border: 0; outline: none; color: inherit; font: inherit; text-align: right; }
+.wl-status { min-height: 1.5em; margin-top: 12px; font-size: 13px; color: var(--ck-good); }
+.wl-status[data-tone='fail'] { color: var(--ck-danger); }
+@media (max-width: 560px) {
+  .wl-drawer { padding: 24px 18px; }
+  .wl-item { grid-template-columns: 1fr auto; }
+}
+
+/* A source's required logo (Best Buy's Branding Guidelines): its own image, unaltered,
+   smaller than the app's name. */
+.pg-attribution { display: inline-flex; align-items: center; }
+.pg-attribution img { display: block; height: 28px; width: auto; }
+.wl-drawer .pg-attribution { margin: 2px 0 6px; }

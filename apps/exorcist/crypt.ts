@@ -25,7 +25,8 @@ export function getRunner(): Runner<StaleItem> {
   runner = createRunner<StaleItem>({
     detector: createStaleItemsDetector({ repos: c.repos, staleDays: c.staleDays, token: c.githubToken }),
     agent: createAiAgent<StaleItem>({
-      model: modelFromEnv(),
+      // Resolved on the first draft: reading the board needs no model settings.
+      model: () => modelFromEnv(),
       instructions: TRIAGE_INSTRUCTIONS,
       options: TRIAGE_OPTIONS,
       describe: (f) => describeStaleItem(f),

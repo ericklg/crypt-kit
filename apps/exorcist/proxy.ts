@@ -1,17 +1,12 @@
+import { boardPasswordChallenge } from '@crypt-kit/board/server';
 import { NextResponse, type NextRequest } from 'next/server';
-import { BASIC_AUTH_REALM, basicAuthMatches } from './access';
 
 /**
  * Asks the browser for CRYPT_BOARD_PASSWORD (HTTP Basic) when it is set. This is only the
  * prompt: app/actions.ts checks the password again on every action.
  */
 export function proxy(request: NextRequest) {
-  const password = process.env.CRYPT_BOARD_PASSWORD;
-  if (!password || basicAuthMatches(request.headers.get('authorization'), password)) return NextResponse.next();
-  return new NextResponse('Sign in to use this board.', {
-    status: 401,
-    headers: { 'www-authenticate': `Basic realm="${BASIC_AUTH_REALM}", charset="UTF-8"` },
-  });
+  return boardPasswordChallenge(process.env.CRYPT_BOARD_PASSWORD, request.headers.get('authorization'), 'Exorcist') ?? NextResponse.next();
 }
 
 export const config = {

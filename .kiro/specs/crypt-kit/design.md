@@ -164,7 +164,9 @@ export interface Runner<P> {
 ## Board (packages/board)
 
 - Server components fetch haunts. Only interactive parts are client components: the haunt card actions, the draft editor and the animations.
-- The theme contract is `{ creature, palette, copy, motion }` and is passed as a typed prop. Apps don't fork components.
+- The theme contract is `{ creature, palette, copy, motion, approveOpensLink? }` and is passed as a typed prop. Apps don't fork components.
+- `approveOpensLink` (Poltergeist): approving opens the action result's `url` in a new tab. A server action can't open a tab, so the board opens a blank one inside the click (browsers block tabs opened later) and points it at the https link once the server confirms, or closes it on failure. If the browser blocked it, a message offers the link instead.
+- `@crypt-kit/board/server` holds what both apps' servers share: `loadBoard`, `createBoardActions`, and the access gate (`checkBoardAccess`, `boardPasswordChallenge`).
 - Motion uses CSS and View Transitions, with a reduced-motion fallback (R5.4).
 - Keyboard shortcuts: `A` approve, `R` spare, `E` edit, `J/K` next and previous. Every shortcut also has a visible button (R5.5).
 - **Visual spec: mockup B · Graveyard** (`mockups/board/board-mockups.html?view=b`, both themes), chosen Nov 17 over A (triage queue) and C (one card at a time) (R5.6). Build to match it and pixel-compare against it:
@@ -189,19 +191,22 @@ export interface Runner<P> {
 
 ```ts
 export interface PriceQuote {
-  itemId: string; title: string; price: number; currency: string;
-  normalPrice?: number; historicLow?: number; store?: string; url: string;
+  itemId: string; title: string; price: number; currency: 'USD';
+  normalPrice: number | null; historicLow: number | null; store: string | null;
+  url: string;                              // in the form the source's terms require
 }
 export interface PriceSource {
   id: 'fixture' | 'cheapshark' | 'bestbuy';
+  name: string;
   enabled(): boolean;                       // bestbuy: !!process.env.BESTBUY_API_KEY
-  quote(itemIds: string[]): Promise<PriceQuote[]>;
-  search(query: string): Promise<PriceQuote[]>; // for adding to the watchlist
+  // ctx = { fetch, signal }, injected so polls use the runner's fetch and tests use fixtures
+  quote(itemIds: readonly string[], ctx: SourceContext): Promise<PriceQuote[]>;
+  search(query: string, ctx: SourceContext): Promise<PriceQuote[]>; // for adding to the watchlist
 }
 ```
 
 - **CheapShark (primary):** an official public API with no key. Watchlist items are CheapShark game IDs, and `historicLow` comes from the game lookup and is passed to the agent. Responses are cached server-side (default 1 hour) and requests are serialized. Before building, read CheapShark's usage notes (rate limits, caching, User-Agent, deal link format) and copy them into `steering/price-sources.md`.
-- **Best Buy (stretch):** the Products API keyed by SKU. It needs a free key: 50,000 calls/day and 5 calls/sec. The key lives only in server env, and the source is hidden in the UI when no key is set.
+- **Best Buy (stretch, built Nov 19):** the Products API keyed by SKU, selected with `POLTERGEIST_SOURCE=bestbuy` and usable only with `BESTBUY_API_KEY`. It allows 50,000 calls a day and 5 a second; we space requests 250 ms apart and batch SKUs with `sku in(...)`. The key lives only in server env and never reaches cache keys, logs or errors. Best Buy's logo is shown wherever its data appears, as its Branding Guidelines require, and music and movies are excluded (affiliate-only). Without a key the app runs on the other sources.
 - **Amazon and eBay are out.** Amazon's Creators API requires an Associates account with qualifying sales. eBay listings are per-seller and expire, so they don't produce stable item keys. Scraping is out.
 
 ## MCP server (packages/mcp)
@@ -230,7 +235,7 @@ The server exposes these tools: `list_haunts`, `get_haunt`, `redraft_haunt`, and
 ## Security
 
 - Secrets live in env vars only. The GitHub token is fine-grained and limited to the configured repos.
-- Every form and route that triggers an action is protected by Vercel BotID, with the server action as the first gate.
+- Every form and route that triggers an action is protected by Vercel BotID, with the server action as the first gate. BotID's server check needs Vercel's OIDC token, so off Vercel (local `next start`, self-hosting) it's skipped and the access gate (password or public demo) is the protection.
 - The public demo runs Exorcist against a sandbox repo the kit owns, and Poltergeist against fixtures. No real user tokens are involved.
 
 ## Open questions

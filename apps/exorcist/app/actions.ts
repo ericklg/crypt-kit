@@ -1,11 +1,10 @@
 'use server';
 
 import type { ApproveEdits, BoardActions } from '@crypt-kit/board';
-import { BoardAccessError, createBoardActions } from '@crypt-kit/board/server';
+import { BoardAccessError, checkBoardAccess, createBoardActions } from '@crypt-kit/board/server';
 import { checkBotId } from 'botid/server';
 import { refresh } from 'next/cache';
 import { headers } from 'next/headers';
-import { accessMode, basicAuthMatches } from '../access';
 import { getConfig, getRunner } from '../crypt';
 
 /**
@@ -13,14 +12,11 @@ import { getConfig, getRunner } from '../crypt';
  * is the real gate; the proxy's password prompt is only for the browser.
  */
 async function guard(): Promise<void> {
-  const config = getConfig();
-  const mode = accessMode(config);
-  if (mode === 'closed') {
-    throw new BoardAccessError('Actions are off on this board. Set CRYPT_BOARD_PASSWORD to turn them on.');
-  }
-  if (mode === 'password' && !basicAuthMatches((await headers()).get('authorization'), config.boardPassword!)) {
-    throw new BoardAccessError('Sign in to act on haunts. Reload the page to get the password prompt.');
-  }
+  const refusal = checkBoardAccess(getConfig(), (await headers()).get('authorization'));
+  if (refusal) throw new BoardAccessError(refusal);
+  // BotID runs only on Vercel (it needs Vercel's OIDC token); elsewhere the access gate
+  // above is the protection.
+  if (!process.env.VERCEL) return;
   const verdict = await checkBotId();
   if (verdict.isBot) throw new BoardAccessError('This request looked automated, so it was refused.');
 }

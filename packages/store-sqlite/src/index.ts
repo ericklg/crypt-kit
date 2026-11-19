@@ -207,3 +207,224 @@ export function createSqliteStoreFromEnv(env: Record<string, string | undefined>
   const authToken = env.CRYPT_DB_AUTH_TOKEN?.trim();
   return createSqliteStore(authToken ? { url, authToken } : { url });
 }
+
+/** Values that expire, shared by every process using the same database. */
+export interface SqliteKeyValue {
+  /** The value, or null when it's missing or expired. */
+  get(key: string): Promise<string | null>;
+  /** Stores `value` for `ttlMs` milliseconds, replacing any earlier value. */
+  set(key: string, value: string, ttlMs: number): Promise<void>;
+  /**
+   * Reserves the next start time (ms) for something allowed once per `intervalMs`, across
+   * every connection: one atomic statement, so concurrent callers get distinct slots.
+   */
+  reserve(key: string, intervalMs: number): Promise<number>;
+  /** Closes the client if this store created it. */
+  close(): void;
+}
+
+export interface SqliteKeyValueOptions extends Omit<SqliteStoreOptions, 'tableName'> {
+  /** Same naming rules as the haunts table. Default `crypt_kv`. */
+  tableName?: string;
+  now?: () => number;
+}
+
+/**
+ * A small expiring key-value table, for state that must be shared across serverless
+ * instances (e.g. an API's cache and rate-limit pause). Not for haunts.
+ */
+export function createSqliteKeyValue(options: SqliteKeyValueOptions = {}): SqliteKeyValue {
+  const table = options.tableName ?? 'crypt_kv';
+  const problem = invalidTableName(table);
+  if (problem) throw new Error(`Invalid table name ${JSON.stringify(table)}: ${problem}`);
+  const now = options.now ?? Date.now;
+  const ownsClient = !options.client;
+  const client =
+    options.client ??
+    createClient(
+      options.authToken
+        ? { url: options.url ?? DEFAULT_DATABASE_URL, authToken: options.authToken }
+        : { url: options.url ?? DEFAULT_DATABASE_URL },
+    );
+  const t = `"${table}"`;
+  let ready: Promise<void> | null = null;
+  const migrate = () =>
+    (ready ??= client
+      .execute(`create table if not exists ${t} (key text primary key, value text not null, expires_at integer not null)`)
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        ready = null;
+        throw error;
+      }));
+
+  return {
+    async get(key) {
+      await migrate();
+      const result = await client.execute({ sql: `select value from ${t} where key = ? and expires_at > ?`, args: [key, now()] });
+      const row = result.rows[0];
+      return row ? String(row.value) : null;
+    },
+    async set(key, value, ttlMs) {
+      if (!Number.isFinite(ttlMs) || ttlMs <= 0) throw new RangeError('ttlMs must be a positive number');
+      await migrate();
+      await client.batch(
+        [
+          { sql: `delete from ${t} where expires_at <= ?`, args: [now()] },
+          {
+            sql: `insert into ${t} (key, value, expires_at) values (?, ?, ?)
+                  on conflict (key) do update set value = excluded.value, expires_at = excluded.expires_at`,
+            args: [key, value, Math.ceil(now() + ttlMs)],
+          },
+        ],
+        'write',
+      );
+    },
+    async reserve(key, intervalMs) {
+      if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new RangeError('intervalMs must be a positive number');
+      await migrate();
+      const at = Math.floor(now());
+      const iv = Math.ceil(intervalMs);
+      // The row holds the next free slot. Take max(next free, now) and move it on by one
+      // interval, in one statement, so two callers can never get the same slot.
+      const result = await client.execute({
+        sql: `insert into ${t} (key, value, expires_at) values (?, ?, ?)
+              on conflict (key) do update set
+                value = cast(max(cast(value as integer), ?) + ? as text),
+                expires_at = max(cast(value as integer), ?) + ? + 60000
+              returning cast(value as integer) - ? as slot`,
+        args: [key, String(at + iv), at + iv + 60_000, at, iv, at, iv, iv],
+      });
+      return Number(result.rows[0]?.slot ?? at);
+    },
+    close() {
+      if (ownsClient) client.close();
+    },
+  };
+}
+
+/** One watched item: an app's source ID, the item's ID there, and the user's threshold. */
+export interface WatchEntry {
+  source: string;
+  itemId: string;
+  /** Display name as the source gave it when the item was added. */
+  title: string;
+  target: number;
+  addedAt: string;
+}
+
+/** The items an app watches, per source. Shared by every process on the same database. */
+export interface SqliteWatchlist {
+  /** Entries for one source, oldest first. Seeds the list from `seed` the first time. */
+  list(source: string): Promise<WatchEntry[]>;
+  /** Adds an entry. If it's already watched, nothing changes (an earlier target is kept). */
+  add(entry: Omit<WatchEntry, 'addedAt'>): Promise<void>;
+  /** Adds or updates an entry (by source and item ID). */
+  put(entry: Omit<WatchEntry, 'addedAt'>): Promise<void>;
+  /** Changes an existing entry's target. False when it isn't watched. */
+  setTarget(source: string, itemId: string, target: number): Promise<boolean>;
+  /** False when it wasn't watched. */
+  remove(source: string, itemId: string): Promise<boolean>;
+  close(): void;
+}
+
+export interface SqliteWatchlistOptions extends Omit<SqliteStoreOptions, 'tableName'> {
+  /** Same naming rules as the haunts table. Default `crypt_watchlist`. */
+  tableName?: string;
+  /** Entries to start a source's list with, used once while the table has none for it. */
+  seed?: (source: string) => ReadonlyArray<Omit<WatchEntry, 'addedAt'>>;
+  now?: () => Date;
+}
+
+/** A watchlist table (e.g. Poltergeist's games and target prices). */
+export function createSqliteWatchlist(options: SqliteWatchlistOptions = {}): SqliteWatchlist {
+  const table = options.tableName ?? 'crypt_watchlist';
+  const problem = invalidTableName(table);
+  if (problem) throw new Error(`Invalid table name ${JSON.stringify(table)}: ${problem}`);
+  const now = options.now ?? (() => new Date());
+  const ownsClient = !options.client;
+  const client =
+    options.client ??
+    createClient(
+      options.authToken
+        ? { url: options.url ?? DEFAULT_DATABASE_URL, authToken: options.authToken }
+        : { url: options.url ?? DEFAULT_DATABASE_URL },
+    );
+  const t = `"${table}"`;
+  // Seeding is remembered per source, so removing every item doesn't bring the seed back.
+  const seeds = `"${table}__seeded"`;
+  let ready: Promise<void> | null = null;
+  const migrate = () =>
+    (ready ??= client
+      .batch(
+        [
+          `create table if not exists ${t} (source text not null, item_id text not null, title text not null,
+             target real not null, added_at text not null, primary key (source, item_id))`,
+          `create table if not exists ${seeds} (source text primary key)`,
+        ],
+        'write',
+      )
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        ready = null;
+        throw error;
+      }));
+
+  const toEntry = (row: Row): WatchEntry => ({
+    source: String(row.source),
+    itemId: String(row.item_id),
+    title: String(row.title),
+    target: Number(row.target),
+    addedAt: String(row.added_at),
+  });
+
+  return {
+    async list(source) {
+      await migrate();
+      const seed = options.seed?.(source) ?? [];
+      if (seed.length) {
+        const at = now().toISOString();
+        // Single statements, like the haunt store: insert only while the source isn't marked
+        // seeded, then mark it. If two instances overlap, the primary key drops repeats, and
+        // once marked, emptying the list never brings the seed back.
+        await client.execute({
+          sql: `insert into ${t} (source, item_id, title, target, added_at)
+                select * from (values ${seed.map(() => '(?, ?, ?, ?, ?)').join(', ')})
+                where not exists (select 1 from ${seeds} where source = ?)
+                on conflict do nothing`,
+          args: [...seed.flatMap((e) => [source, e.itemId, e.title, e.target, at] as InValue[]), source],
+        });
+        await client.execute({ sql: `insert into ${seeds} (source) values (?) on conflict do nothing`, args: [source] });
+      }
+      const result = await client.execute({ sql: `select * from ${t} where source = ? order by added_at, item_id`, args: [source] });
+      return result.rows.map(toEntry);
+    },
+    async add(entry) {
+      await migrate();
+      await client.execute({
+        sql: `insert into ${t} (source, item_id, title, target, added_at) values (?, ?, ?, ?, ?) on conflict do nothing`,
+        args: [entry.source, entry.itemId, entry.title, entry.target, now().toISOString()],
+      });
+    },
+    async put(entry) {
+      await migrate();
+      await client.execute({
+        sql: `insert into ${t} (source, item_id, title, target, added_at) values (?, ?, ?, ?, ?)
+              on conflict (source, item_id) do update set title = excluded.title, target = excluded.target`,
+        args: [entry.source, entry.itemId, entry.title, entry.target, now().toISOString()],
+      });
+    },
+    async setTarget(source, itemId, target) {
+      await migrate();
+      const result = await client.execute({ sql: `update ${t} set target = ? where source = ? and item_id = ?`, args: [target, source, itemId] });
+      return result.rowsAffected > 0;
+    },
+    async remove(source, itemId) {
+      await migrate();
+      const result = await client.execute({ sql: `delete from ${t} where source = ? and item_id = ?`, args: [source, itemId] });
+      return result.rowsAffected > 0;
+    },
+    close() {
+      if (ownsClient) client.close();
+    },
+  };
+}
