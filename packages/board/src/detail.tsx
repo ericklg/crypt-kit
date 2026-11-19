@@ -83,7 +83,7 @@ function SpareButton({ view, copy, onSpare, pending }: Pick<HauntDetailProps, 'v
 function DetailBody(props: HauntDetailProps) {
   const { view, copy, pending } = props;
   const { ui } = copy;
-  const words = { approve: copy.approve.toLowerCase(), spare: copy.spare.toLowerCase() };
+  const words = { approve: copy.approve.toLowerCase(), spare: copy.spare.toLowerCase(), approveLabel: copy.approve, spareLabel: copy.spare };
 
   if (view.status === 'new') {
     return (

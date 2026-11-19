@@ -64,7 +64,10 @@ body {
 .wl-status[data-tone='fail'] { color: var(--ck-danger); }
 @media (max-width: 560px) {
   .wl-drawer { padding: 24px 18px; }
+  /* Title and remove on the first row, the alert price under them. */
   .wl-item { grid-template-columns: 1fr auto; }
+  .wl-item .wl-remove { grid-column: 2; grid-row: 1; }
+  .wl-item .wl-target { grid-column: 1 / -1; }
 }
 
 /* A source's required logo (Best Buy's Branding Guidelines): its own image, unaltered,

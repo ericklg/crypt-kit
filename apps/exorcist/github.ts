@@ -38,7 +38,7 @@ export function createGitHub(options: GitHubClientOptions = {}): GitHubClient {
   const baseUrl = options.baseUrl ?? GITHUB_API_URL;
   return {
     async request<T>(method: string, pathOrUrl: string, { body, signal }: { body?: unknown; signal?: AbortSignal } = {}) {
-      const url = pathOrUrl.startsWith('https://') ? pathOrUrl : `${baseUrl}${pathOrUrl}`;
+      const url = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : `${baseUrl}${pathOrUrl}`;
       if (new URL(url).origin !== new URL(baseUrl).origin) throw new GitHubError(0, `Refusing to send the token to ${new URL(url).origin}`);
       const headers: Record<string, string> = {
         accept: 'application/vnd.github+json',

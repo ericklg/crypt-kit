@@ -7,13 +7,16 @@
     "node": ">=24"
   },
   "scripts": {
-    "typecheck": "tsc -b && pnpm -r --filter \"./apps/*\" typecheck",
+    "typecheck": "tsc -b && pnpm -r --filter \"./apps/*\" typecheck && tsc -p e2e",
+    "build": "pnpm -r --filter \"./apps/*\" build",
+    "e2e": "playwright test",
     "create-app": "node packages/create-crypt-app/bin.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:related": "vitest related --run"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
