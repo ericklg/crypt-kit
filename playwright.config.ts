@@ -1,7 +1,7 @@
 // Smoke tests: each app's production build on a freshly seeded local database.
 // Build first (`pnpm build`), then `pnpm e2e`. No model, no GitHub, no network.
 import { defineConfig, devices } from '@playwright/test';
-import { DATA_DIR, EXORCIST_PORT, FAKE_GITHUB, FAKE_GITHUB_PORT, POLTERGEIST_PORT } from './e2e/env';
+import { BOARD_PASSWORD, DATA_DIR, EXORCIST_PORT, FAKE_GITHUB, FAKE_GITHUB_PORT, POLTERGEIST_PORT } from './e2e/env';
 
 /** Seeds a fresh database with the app's demo script, then starts its build. */
 const serve = (app: string, db: string, port: number) =>
@@ -11,13 +11,16 @@ export default defineConfig({
   testDir: 'e2e',
   workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // No retries: a test approves its seeded haunt, and the data is seeded once per server start.
+  retries: 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
+    // Pinned for both servers, so a password in the shell or .env.local can't change the result.
+    httpCredentials: { username: 'e2e', password: BOARD_PASSWORD },
     ...devices['Desktop Chrome'],
     viewport: { width: 1280, height: 860 },
     trace: 'retain-on-failure',
-    // Every run records the flow. E2E_SLOWMO=400 slows each step so a person can follow it.
+    // Every run records the flow. E2E_SLOWMO=1000 slows each step so a person can follow it.
     video: { mode: 'on', size: { width: 1280, height: 860 } },
     launchOptions: { slowMo: Number(process.env.E2E_SLOWMO ?? 0) },
   },
@@ -39,14 +42,14 @@ export default defineConfig({
         EXORCIST_REPOS: 'acme/lantern,acme/ember',
         GITHUB_TOKEN: 'e2e-fake-token',
         GITHUB_API_URL: FAKE_GITHUB,
-        CRYPT_PUBLIC_DEMO: '1',
+        CRYPT_BOARD_PASSWORD: BOARD_PASSWORD,
       },
       timeout: 60_000,
     },
     {
       command: serve('poltergeist', 'poltergeist.db', POLTERGEIST_PORT),
       url: `http://127.0.0.1:${POLTERGEIST_PORT}`,
-      env: { CRYPT_DB_URL: `file:${DATA_DIR}/poltergeist.db`, POLTERGEIST_SOURCE: 'fixture', CRYPT_PUBLIC_DEMO: '1' },
+      env: { CRYPT_DB_URL: `file:${DATA_DIR}/poltergeist.db`, POLTERGEIST_SOURCE: 'fixture', CRYPT_BOARD_PASSWORD: BOARD_PASSWORD },
       timeout: 60_000,
     },
   ],

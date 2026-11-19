@@ -8,3 +8,5 @@ export const EXORCIST_PORT = 3201;
 export const POLTERGEIST_PORT = 3202;
 export const FAKE_GITHUB_PORT = 4010;
 export const FAKE_GITHUB = `http://127.0.0.1:${FAKE_GITHUB_PORT}`;
+/** The board password both apps run with in the smoke tests (HTTP Basic, any user name). */
+export const BOARD_PASSWORD = 'e2e-board-password';
