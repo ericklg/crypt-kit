@@ -42,9 +42,11 @@ describe('create-crypt-app', () => {
   });
 
   it('refuses bad names and existing folders, and writes nothing then', () => {
-    for (const bad of ['', 'x', 'Release', 'release_wraith', '-wraith', 'wraith-', 'a--b', '9lives', 'x'.repeat(31), '../evil', 'exorcist', 'store-sqlite']) {
+    for (const bad of ['', 'x', 'Release', 'release_wraith', '-wraith', 'wraith-', 'a--b', '9lives', 'x'.repeat(31), '../evil', 'exorcist', 'store-sqlite', 'sqlite', 'sqlite-ghost']) {
       expect(invalidName(bad), bad).not.toBeNull();
     }
+    // Only the whole word is reserved.
+    expect(invalidName('sqlites')).toBeNull();
     const root = tempRoot();
     generate('wisp', { root });
     expect(() => generate('wisp', { root })).toThrow(/already exists/);

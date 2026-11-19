@@ -15,7 +15,7 @@ Text from sources (issue bodies, product listings) and from the model reaches th
 
 ## Use it from Kiro
 
-Each app has an entry point, `apps/<app>/mcp.ts`, that builds the app's runner and serves over stdio. It reads the same env as the app (`.env.local`), including `CRYPT_DB_URL`, so it sees the same haunts. Add it to `.kiro/settings/mcp.json`, which is gitignored because it's per machine:
+Each app has an entry point, `apps/<app>/mcp.ts`, that builds the app's runner and serves over stdio. It reads the same env as the app (`.env.local`), including `CRYPT_DB_URL`, so it sees the same haunts. It loads the kit packages from their builds, so run `pnpm typecheck` (or the app's `dev`) once after cloning. Add it to `.kiro/settings/mcp.json`, which is gitignored because it's per machine:
 
 ```json
 {

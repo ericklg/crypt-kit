@@ -13,6 +13,8 @@ export function invalidName(name) {
   if (typeof name !== 'string' || name.length < 2 || name.length > 30) return 'use 2 to 30 characters';
   if (!NAME.test(name)) return 'use lowercase letters, digits and single hyphens, starting with a letter (e.g. "release-wraith")';
   if (RESERVED.has(name)) return `"${name}" is already used by the kit`;
+  // SQLite reserves the sqlite_ prefix, and store-sqlite refuses such table names.
+  if (namesFor(name).table.startsWith('sqlite_')) return 'don\'t start with "sqlite" as a whole word (SQLite reserves it for table names)';
   return null;
 }
 
