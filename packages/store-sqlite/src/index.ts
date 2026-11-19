@@ -214,6 +214,11 @@ export interface SqliteKeyValue {
   get(key: string): Promise<string | null>;
   /** Stores `value` for `ttlMs` milliseconds, replacing any earlier value. */
   set(key: string, value: string, ttlMs: number): Promise<void>;
+  /**
+   * Reserves the next start time (ms) for something allowed once per `intervalMs`, across
+   * every connection: one atomic statement, so concurrent callers get distinct slots.
+   */
+  reserve(key: string, intervalMs: number): Promise<number>;
   /** Closes the client if this store created it. */
   close(): void;
 }
@@ -273,6 +278,23 @@ export function createSqliteKeyValue(options: SqliteKeyValueOptions = {}): Sqlit
         ],
         'write',
       );
+    },
+    async reserve(key, intervalMs) {
+      if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new RangeError('intervalMs must be a positive number');
+      await migrate();
+      const at = Math.floor(now());
+      const iv = Math.ceil(intervalMs);
+      // The row holds the next free slot. Take max(next free, now) and move it on by one
+      // interval, in one statement, so two callers can never get the same slot.
+      const result = await client.execute({
+        sql: `insert into ${t} (key, value, expires_at) values (?, ?, ?)
+              on conflict (key) do update set
+                value = cast(max(cast(value as integer), ?) + ? as text),
+                expires_at = max(cast(value as integer), ?) + ? + 60000
+              returning cast(value as integer) - ? as slot`,
+        args: [key, String(at + iv), at + iv + 60_000, at, iv, at, iv, iv],
+      });
+      return Number(result.rows[0]?.slot ?? at);
     },
     close() {
       if (ownsClient) client.close();

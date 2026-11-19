@@ -64,6 +64,35 @@ describe('Best Buy source', () => {
     expect(waits).toEqual([250, 250]);
   });
 
+  it('spaces requests across instances that share state, under the per-second limit', async () => {
+    let t = 0;
+    let next = 0;
+    const shared = {
+      get: async () => null,
+      set: async () => {},
+      // Mirrors createSqliteKeyValue.reserve: one atomic step per caller.
+      reserve: async (_k: string, iv: number) => {
+        const slot = Math.max(next, t);
+        next = slot + iv;
+        return slot;
+      },
+    };
+    const waits: number[] = [];
+    let fetches = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      fetches++;
+      return Response.json({ products: [] });
+    };
+    // Six instances, each with its own queue, searching at the same moment (clock held at 0):
+    // each must wait until its own slot, 250 ms after the previous one.
+    const instances = Array.from({ length: 6 }, () =>
+      createBestBuySource({ apiKey: TEST_KEY, shared, now: () => t, sleep: async (ms) => void waits.push(ms) }),
+    );
+    await Promise.all(instances.map((s, i) => s.search(`tv ${i}`, ctx(fetch))));
+    expect(fetches).toBe(6);
+    expect([...waits].sort((a, b) => a - b)).toEqual([250, 500, 750, 1000, 1250]); // the first starts at once
+  });
+
   it('pauses after a 429 until Retry-After has passed', async () => {
     let calls = 0;
     const fetch: typeof globalThis.fetch = async () => {

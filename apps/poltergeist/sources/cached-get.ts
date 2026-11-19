@@ -4,6 +4,8 @@ import type { SourceContext } from './price-source';
 export interface SharedState {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlMs: number): Promise<void>;
+  /** Atomically reserves the next start time for a once-per-interval action, across instances. */
+  reserve?(key: string, intervalMs: number): Promise<number>;
 }
 
 /** A source refused us for now. Polls fail instead of reporting partial prices. */
@@ -77,9 +79,14 @@ export function createCachedGet(options: CachedGetOptions) {
         blockedUntil = Math.max(blockedUntil, Number(await shared.get(blockKey)) || 0);
       }
       if (blockedUntil > now()) throw new RateLimitError(options.name, blockedUntil);
-      const gap = lastStart + minInterval - now();
-      if (gap > 0) await sleep(gap);
-      lastStart = now();
+      if (minInterval > 0) {
+        // With shared state the slot is reserved for every instance at once, so all of them
+        // together stay under a per-second limit; without it, only this instance is spaced.
+        const slot = shared?.reserve ? await shared.reserve(`${options.keyPrefix}:next-slot`, minInterval) : Math.max(now(), lastStart + minInterval);
+        lastStart = slot;
+        const gap = slot - now();
+        if (gap > 0) await sleep(gap);
+      }
       const res = await options.request(path, ctx);
       if (res.status === 429) {
         const seconds = Number(res.headers.get('retry-after'));

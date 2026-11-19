@@ -37,6 +37,18 @@ describe('createSqliteKeyValue', () => {
     expect(await a.get('k')).toBeNull();
   });
 
+  it('reserves distinct, spaced slots across connections', async () => {
+    let t = 10_000;
+    const u = url();
+    const a = open(u, () => t);
+    const b = open(u, () => t);
+    const slots = await Promise.all([a.reserve('api', 250), b.reserve('api', 250), a.reserve('api', 250), b.reserve('api', 250)]);
+    expect([...slots].sort((x, y) => x - y)).toEqual([10_000, 10_250, 10_500, 10_750]);
+    t = 20_000; // long after: the next slot is now, not the old queue
+    expect(await a.reserve('api', 250)).toBe(20_000);
+    await expect(a.reserve('api', 0)).rejects.toThrow(RangeError);
+  });
+
   it('rejects bad table names and TTLs', async () => {
     expect(() => createSqliteKeyValue({ url: ':memory:', tableName: 'Bad Name' })).toThrow(/Invalid table name/);
     const kv = open(url(), () => 0);
