@@ -49,7 +49,13 @@ export default defineConfig({
     {
       command: serve('poltergeist', 'poltergeist.db', POLTERGEIST_PORT),
       url: `http://127.0.0.1:${POLTERGEIST_PORT}`,
-      env: { CRYPT_DB_URL: `file:${DATA_DIR}/poltergeist.db`, POLTERGEIST_SOURCE: 'fixture', CRYPT_BOARD_PASSWORD: BOARD_PASSWORD },
+      env: {
+        CRYPT_DB_URL: `file:${DATA_DIR}/poltergeist.db`,
+        POLTERGEIST_SOURCE: 'fixture',
+        // The demo list (DEMO_WATCHLIST), pinned so a live-source list in the shell or .env.local can't break the fixture.
+        POLTERGEIST_WATCHLIST: 'hollow-knight:8,hades-2:25,celeste:5,outer-wilds:10,balatro:13,dead-cells:10,stardew-valley:9,disco-elysium:15',
+        CRYPT_BOARD_PASSWORD: BOARD_PASSWORD,
+      },
       timeout: 60_000,
     },
   ],

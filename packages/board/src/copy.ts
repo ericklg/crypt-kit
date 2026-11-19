@@ -26,7 +26,7 @@ export const DEFAULT_UI_COPY: UiCopy = {
   tryApproveAgain: 'Try {approve} again',
   actionFailedNote: 'The draft is kept, so you can fix the cause and try again.',
   stuckTitle: 'This may already have happened',
-  stuckBody: 'You pressed {approveLabel}, but the result never came back. Use the link below to check what actually happened, then tell us what you saw.',
+  stuckBody: 'You pressed {approveLabel}, but the result never came back. Check whether it actually happened, then tell us what you saw.',
   happened: 'It happened',
   didntHappen: 'It didn’t',
   unlocksIn: 'You can answer in {minutes} min, once the first try has timed out.',
