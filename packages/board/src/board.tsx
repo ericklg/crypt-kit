@@ -112,6 +112,7 @@ export function Board({ theme, haunts, score, weeklyGoal, actions, now, defaultO
         now={now ?? new Date().toISOString()}
         defaultOpenKey={defaultOpenKey ?? null}
         motion={theme.motion ?? 'full'}
+        opensLink={theme.approveOpensLink ?? false}
       />
     </div>
   );

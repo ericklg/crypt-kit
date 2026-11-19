@@ -1,0 +1,21 @@
+body {
+  margin: 0;
+  background: #120b10;
+}
+
+/* Shown instead of the board when env vars are missing (page.tsx). */
+.setup {
+  max-width: 40rem;
+  margin: 12vh auto;
+  padding: 0 24px;
+  color: #f6ecf2;
+  font: 16px/1.6 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.setup h1 {
+  font: 700 28px/1.2 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+}
+
+.setup code {
+  color: #ffb347;
+}

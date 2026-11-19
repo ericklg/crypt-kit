@@ -164,7 +164,9 @@ export interface Runner<P> {
 ## Board (packages/board)
 
 - Server components fetch haunts. Only interactive parts are client components: the haunt card actions, the draft editor and the animations.
-- The theme contract is `{ creature, palette, copy, motion }` and is passed as a typed prop. Apps don't fork components.
+- The theme contract is `{ creature, palette, copy, motion, approveOpensLink? }` and is passed as a typed prop. Apps don't fork components.
+- `approveOpensLink` (Poltergeist): approving opens the action result's `url` in a new tab. A server action can't open a tab, so the board opens a blank one inside the click (browsers block tabs opened later) and points it at the https link once the server confirms, or closes it on failure. If the browser blocked it, a message offers the link instead.
+- `@crypt-kit/board/server` holds what both apps' servers share: `loadBoard`, `createBoardActions`, and the access gate (`checkBoardAccess`, `boardPasswordChallenge`).
 - Motion uses CSS and View Transitions, with a reduced-motion fallback (R5.4).
 - Keyboard shortcuts: `A` approve, `R` spare, `E` edit, `J/K` next and previous. Every shortcut also has a visible button (R5.5).
 - **Visual spec: mockup B · Graveyard** (`mockups/board/board-mockups.html?view=b`, both themes), chosen Nov 17 over A (triage queue) and C (one card at a time) (R5.6). Build to match it and pixel-compare against it:
@@ -189,14 +191,17 @@ export interface Runner<P> {
 
 ```ts
 export interface PriceQuote {
-  itemId: string; title: string; price: number; currency: string;
-  normalPrice?: number; historicLow?: number; store?: string; url: string;
+  itemId: string; title: string; price: number; currency: 'USD';
+  normalPrice: number | null; historicLow: number | null; store: string | null;
+  url: string;                              // in the form the source's terms require
 }
 export interface PriceSource {
   id: 'fixture' | 'cheapshark' | 'bestbuy';
+  name: string;
   enabled(): boolean;                       // bestbuy: !!process.env.BESTBUY_API_KEY
-  quote(itemIds: string[]): Promise<PriceQuote[]>;
-  search(query: string): Promise<PriceQuote[]>; // for adding to the watchlist
+  // ctx = { fetch, signal }, injected so polls use the runner's fetch and tests use fixtures
+  quote(itemIds: readonly string[], ctx: SourceContext): Promise<PriceQuote[]>;
+  search(query: string, ctx: SourceContext): Promise<PriceQuote[]>; // for adding to the watchlist
 }
 ```
 

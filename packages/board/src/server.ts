@@ -9,6 +9,8 @@ import {
 import type { ActionOutcome, ApproveEdits, BoardActions, HauntView } from './types.js';
 import { toHauntView, type Presenter } from './view.js';
 
+export { accessMode, basicAuthMatches, boardPasswordChallenge, checkBoardAccess, type AccessConfig, type AccessMode } from './access.js';
+
 /** Every status the board shows: open haunts plus the ones held by a claim. */
 export const BOARD_STATUSES: readonly HauntStatus[] = [...OPEN_STATUSES, ...CLAIMED_STATUSES];
 
@@ -64,7 +66,10 @@ export const DEFAULT_FAILURE_MESSAGES: BoardMessages = {
 
 /** Turns a runner result into what the board shows. Failed actions report their own error. */
 export function toActionOutcome(result: OperationResult<unknown>, messages: BoardMessages = DEFAULT_FAILURE_MESSAGES): ActionOutcome {
-  if (result.ok) return { ok: true };
+  if (result.ok) {
+    const url = result.haunt.result?.ok ? result.haunt.result.url : null;
+    return url ? { ok: true, url } : { ok: true };
+  }
   if (result.reason === 'action_failed') {
     const error = result.haunt?.result && !result.haunt.result.ok ? result.haunt.result.error : null;
     return { ok: false, message: error ?? result.message };

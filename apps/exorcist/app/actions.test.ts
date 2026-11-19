@@ -4,7 +4,7 @@ const state = vi.hoisted(() => ({
   authorization: null as string | null,
   isBot: false,
   config: { boardPassword: null as string | null, publicDemo: false },
-  runner: { spare: vi.fn(async () => ({ ok: true })), run: vi.fn(async () => ({ ok: true })) },
+  runner: { spare: vi.fn(async () => ({ ok: true, haunt: { result: null } })), run: vi.fn(async () => ({ ok: true })) },
 }));
 
 vi.mock('next/headers', () => ({ headers: async () => new Headers(state.authorization ? { authorization: state.authorization } : {}) }));

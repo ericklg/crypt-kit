@@ -17,10 +17,22 @@ export interface YardProps {
   defaultOpenKey?: string | null;
   /** Theme motion setting; `reduced` skips the leave animation delay. */
   motion: 'full' | 'reduced';
+  /** Approve opens the result's link in a new tab. See `BoardTheme.approveOpensLink`. */
+  opensLink?: boolean;
 }
 
 type Leave = 'approve' | 'spare';
-type Toast = { id: number; message: string; tone: 'ok' | 'fail' };
+type Toast = { id: number; message: string; tone: 'ok' | 'fail'; link?: { href: string; text: string } };
+
+/** Only https links from the server are opened. */
+function safeLink(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Leave animation length; matches .ck-grave's opacity/transform transition in board.css. */
 const LEAVE_MS = 450;
@@ -49,7 +61,7 @@ function prefersReducedMotion(): boolean {
  * The interactive part of the board: the graves, the haunt drawer, toasts and keyboard
  * shortcuts. Shortcuts only fire while focus is inside this component (WCAG 2.1.4).
  */
-export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpenKey = null, motion }: YardProps) {
+export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpenKey = null, motion, opensLink = false }: YardProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(() => defaultOpenKey ?? views[0]?.key ?? null);
   const [open, setOpen] = useState(() => defaultOpenKey !== null && views.some((v) => v.key === defaultOpenKey));
   const [leaving, setLeaving] = useState<ReadonlyMap<string, Leave>>(new Map());
@@ -90,7 +102,8 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
 
   useEffect(() => {
     if (!toast) return;
-    const id = setTimeout(() => setToast((t) => (t?.id === toast.id ? null : t)), 2600);
+    // A toast with a link stays long enough to use it.
+    const id = setTimeout(() => setToast((t) => (t?.id === toast.id ? null : t)), toast.link ? 10_000 : 2600);
     return () => clearTimeout(id);
   }, [toast]);
 
@@ -224,6 +237,9 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
     setSelectedKey(key);
     setLeaving((m) => new Map(m).set(key, kind));
     focusNext.current = parkedOn;
+    // Opened now, inside the click or key press, because a tab opened after the server
+    // answers is blocked as a popup. It's pointed at the link, or closed, once we know.
+    const tab = kind === 'approve' && opensLink ? window.open('', '_blank') : null;
 
     run(
       key,
@@ -249,6 +265,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
         });
         // Only take focus back if the user hasn't moved it since.
         if (!res.ok) {
+          tab?.close();
           if (stillParked()) focusNext.current = key;
           return;
         }
@@ -256,6 +273,19 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
         setTombstones((t) => new Map(t).set(key, view.revision));
         setSelectedKey((cur) => (cur === key ? next : cur));
         if (stillParked()) focusNext.current = next ?? '@yard';
+        if (kind === 'approve' && opensLink) {
+          const href = safeLink(res.url);
+          if (href && tab && !tab.closed) {
+            tab.opener = null; // the deal page gets no handle on the board
+            tab.location.replace(href);
+          } else {
+            tab?.close();
+            if (href) {
+              setToast({ id: Date.now(), message: copy.ui.linkBlocked, tone: 'fail', link: { href, text: copy.ui.openLink } });
+              return;
+            }
+          }
+        }
         showToast(kind === 'approve' ? copy.approved : copy.spared);
       },
     );
@@ -386,6 +416,11 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
           <div className="ck-toast" data-tone={toast.tone} role={toast.tone === 'fail' ? 'alert' : 'status'}>
             <Icon name={toast.tone === 'fail' ? 'alert' : 'check'} />
             <span>{toast.message}</span>
+            {toast.link ? (
+              <a className="ck-link" href={toast.link.href} target="_blank" rel="noopener noreferrer">
+                {toast.link.text}
+              </a>
+            ) : null}
           </div>
         ) : null}
       </div>

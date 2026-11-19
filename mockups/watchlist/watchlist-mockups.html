@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Price Poltergeist · watchlist mockups</title>
+<style>
+:root { --bg:#120b10; --bg2:#170f15; --surface:#1e141b; --surface2:#281b24; --line:#3b2b36; --ink:#f6ecf2; --muted:#c4afbd; --accent:#ffb347; --accent-ink:#2b1700; --glow:rgba(255,179,71,.16); --good:#a9e58f; --danger:#ff9a8a;
+  --display:'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif; --body:Inter,system-ui,-apple-system,'Segoe UI',sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+button, input { font: inherit; color: inherit; }
+.mockbar { display: flex; gap: 8px; align-items: center; padding: 10px 18px; border-bottom: 1px dashed var(--line); background: #0c070a; font-size: 13px; }
+.mockbar b { margin-right: 12px; }
+.mockbar a { color: var(--muted); text-decoration: none; padding: 5px 10px; border-radius: 8px; border: 1px solid transparent; }
+.mockbar a[aria-current] { color: var(--ink); border-color: var(--line); background: var(--surface); }
+.head { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; gap: 12px; align-items: center; }
+.mark { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line); color: var(--accent); }
+.name { font: 700 21px/1 var(--display); margin: 0; }
+.sub { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); cursor: pointer; white-space: nowrap; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.btn-ghost { background: transparent; }
+.btn-sm { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
+.row-actions { display: flex; gap: 10px; }
+.field { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--surface2); border: 1px solid var(--line); }
+.field input { background: none; border: 0; outline: none; flex: 1; min-width: 0; }
+.field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow); }
+.label { font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 22px 0 10px; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center; padding: 12px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+.item b { font-weight: 600; }
+.meta { color: var(--muted); font-size: 12.5px; }
+.price { font: 700 16px/1 var(--display); color: var(--good); }
+.target { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--line); font-size: 13px; }
+.target input { width: 58px; background: none; border: 0; outline: none; text-align: right; }
+.pill { display: inline-flex; gap: 6px; align-items: center; font: 600 12px/1 var(--body); padding: 5px 9px; border-radius: 999px; background: rgba(169,229,143,.12); color: var(--good); }
+.pill.off { background: var(--surface2); color: var(--muted); }
+.note { color: var(--muted); font-size: 13px; }
+.yard-ghost { padding: 40px 28px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 22px; opacity: .35; }
+.stone { height: 230px; border-radius: 120px 120px 14px 14px; background: var(--surface); border: 1px solid var(--line); }
+.scrim { position: fixed; inset: 0; background: rgba(6,3,5,.55); }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 520px; background: var(--bg2); border-left: 1px solid var(--line); padding: 28px 32px; overflow: auto; }
+.drawer h2, .page h1, .bar h2 { font: 700 26px/1.15 var(--display); margin: 0 0 6px; }
+.close { position: absolute; top: 18px; right: 18px; }
+.page { max-width: 980px; margin: 0 auto; padding: 32px 28px; }
+.tabs { display: flex; gap: 6px; margin-left: 24px; }
+.tabs a { color: var(--muted); text-decoration: none; padding: 7px 12px; border-radius: 9px; }
+.tabs a[aria-current] { color: var(--ink); background: var(--surface); border: 1px solid var(--line); }
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.table td { padding: 12px; border-bottom: 1px solid var(--line); }
+.split { display: grid; grid-template-columns: 1fr 360px; gap: 28px; align-items: start; }
+.card { padding: 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.bar { position: fixed; left: 50%; top: 110px; transform: translateX(-50%); width: 640px; padding: 18px; border-radius: 16px; background: var(--bg2); border: 1px solid var(--line); box-shadow: 0 30px 80px -20px #000, 0 0 0 1px var(--glow); }
+.bar .list { margin-top: 12px; }
+.hit { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; }
+.hit[aria-selected=true] { background: var(--surface2); outline: 1px solid var(--accent); }
+kbd { font: 11px/1 ui-monospace, monospace; padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); }
+.hint { display: flex; gap: 14px; margin-top: 12px; color: var(--muted); font-size: 12.5px; }
+.chip { display: inline-flex; gap: 8px; align-items: center; padding: 7px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; }
+.watchrow { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 28px; border-bottom: 1px solid var(--line); align-items: center; }
+svg { width: 18px; height: 18px; }
+</style>
+</head>
+<body>
+<nav class="mockbar" aria-label="Mockup options">
+  <b>Watchlist mockups (task 8.4)</b>
+  <a href="?view=a" data-v="a">A · Drawer</a>
+  <a href="?view=b" data-v="b">B · Watchlist page</a>
+  <a href="?view=c" data-v="c">C · Quick add bar</a>
+</nav>
+<div id="app"></div>
+<script>
+const flame = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-1.5.6-2.6 1.5-3.5.2 1.5 1 2.5 2 2.5 0-2.5-1-4.5.5-7.5z"/><path d="M12 21a7 7 0 0 0 7-7c0-3-1.5-5-3-6.5"/></svg>';
+const search = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+const x = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+const plus = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+const list = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>';
+
+const watched = [
+  ['Hollow Knight', 'Steam', 7.49, 8.00], ['Hades II', 'Fanatical', 22.49, 25.00], ['Celeste', 'GOG', 4.99, 5.00],
+  ['Disco Elysium', 'Steam', 39.99, 15.00], ['Balatro', 'Steam', 12.49, 13.00],
+];
+const hits = [['Hollow Knight: Silksong', 'Steam', 19.99], ['Hollow Knight', 'Steam', 7.49, true], ['Hollow Knight Voidheart Edition', 'GOG', 14.99]];
+const usd = (n) => `$${n.toFixed(2)}`;
+const under = (p, t) => p <= t ? `<span class="pill">Under target</span>` : `<span class="pill off">${usd(p - t)} to go</span>`;
+
+const header = (extra = '') => `<header class="head"><div class="brand"><div class="mark">${flame}</div><div><h1 class="name">Price Poltergeist</h1><div class="sub">${watched.length} games watched · CheapShark</div></div>${extra}</div>
+  <div class="row-actions">REPLACE<button class="btn">Check prices</button></div></header>`;
+const ghostYard = `<div class="yard-ghost">${'<div class="stone"></div>'.repeat(5)}</div>`;
+const watchedRows = () => watched.map(([t, s, p, tg]) => `<li class="item"><div><b>${t}</b><div class="meta">${s} · now <span class="price" style="font-size:14px">${usd(p)}</span></div></div>
+  <label class="target">Target <input value="${tg.toFixed(2)}" aria-label="Target price for ${t}"></label>
+  <button class="btn btn-ghost btn-sm" aria-label="Stop watching ${t}">${x}</button></li>`).join('');
+const searchHits = () => hits.map(([t, s, p, w]) => `<li class="item"><div><b>${t}</b><div class="meta">Cheapest now at ${s}</div></div><span class="price">${usd(p)}</span>
+  ${w ? '<span class="pill off">Watching</span>' : `<button class="btn btn-sm">${plus} Watch</button>`}</li>`).join('');
+
+const views = {
+  a: () => header().replace('REPLACE', `<button class="btn">${list} Watchlist</button>`) + ghostYard + `<div class="scrim"></div>
+    <aside class="drawer" role="dialog" aria-label="Watchlist"><button class="btn btn-ghost close" aria-label="Close">${x}</button>
+      <h2>Your watchlist</h2><p class="note">We tell you when a game drops to your target. Prices from CheapShark.</p>
+      <div class="label">Add a game</div>
+      <div class="field">${search}<input value="hollow knight" aria-label="Search games"></div>
+      <ul class="list" style="margin-top:10px">${searchHits()}</ul>
+      <div class="label">Watching (${watched.length})</div>
+      <ul class="list">${watchedRows()}</ul>
+    </aside>`,
+  b: () => header(`<nav class="tabs"><a href="#">Board</a><a href="#" aria-current="page">Watchlist</a></nav>`).replace('REPLACE', '') + `
+    <main class="page"><div class="split"><section>
+      <h1>Watchlist</h1><p class="note">${watched.length} games. A ghost appears on the board when one drops to its target.</p>
+      <table class="table"><thead><tr><th>Game</th><th>Now</th><th>Target</th><th>Status</th><th></th></tr></thead><tbody>
+      ${watched.map(([t, s, p, tg]) => `<tr><td><b>${t}</b><div class="meta">${s}</div></td><td class="price">${usd(p)}</td>
+        <td><label class="target"><input value="${tg.toFixed(2)}" aria-label="Target price for ${t}"></label></td><td>${under(p, tg)}</td>
+        <td><button class="btn btn-ghost btn-sm" aria-label="Stop watching ${t}">${x}</button></td></tr>`).join('')}
+      </tbody></table></section>
+      <aside class="card"><div class="label" style="margin-top:0">Add a game</div><div class="field">${search}<input value="hollow knight" aria-label="Search games"></div>
+        <ul class="list" style="margin-top:10px">${hits.map(([t, s, p, w]) => `<li class="item" style="grid-template-columns:1fr auto"><div><b>${t}</b><div class="meta">${s} · ${usd(p)}</div></div>
+          ${w ? '<span class="pill off">Watching</span>' : `<button class="btn btn-sm">${plus} Watch</button>`}</li>`).join('')}</ul>
+        <p class="note">New games start with a target 20% under today’s price. Change it in the table.</p></aside>
+    </div></main>`,
+  c: () => header().replace('REPLACE', `<button class="btn">${plus} Watch a game <kbd>/</kbd></button>`) +
+    `<div class="watchrow"><span class="meta">Watching:</span>${watched.map(([t, , p, tg]) => `<span class="chip">${t} <span class="meta">≤ ${usd(tg)}</span></span>`).join('')}<button class="btn btn-ghost btn-sm">Edit</button></div>` + ghostYard +
+    `<div class="scrim"></div><div class="bar" role="dialog" aria-label="Watch a game"><h2>Watch a game</h2>
+      <div class="field">${search}<input value="hollow knight" aria-label="Search games"></div>
+      <ul class="list">${hits.map(([t, s, p, w], i) => `<li class="hit" aria-selected="${i === 0}"><div><b>${t}</b><div class="meta">${s} · now ${usd(p)}</div></div>
+        ${w ? '<span class="pill off">Watching</span>' : `<label class="target">Alert at <input value="${(p * 0.8).toFixed(2)}" aria-label="Target price"></label>`}
+        ${w ? '' : `<button class="btn btn-primary btn-sm">Watch</button>`}</li>`).join('')}</ul>
+      <div class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> choose</span><span><kbd>Enter</kbd> watch</span><span><kbd>Esc</kbd> close</span></div></div>`,
+};
+const view = new URLSearchParams(location.search).get('view') || 'a';
+document.getElementById('app').innerHTML = (views[view] || views.a)();
+document.querySelectorAll('.mockbar a').forEach((a) => a.dataset.v === view && a.setAttribute('aria-current', 'page'));
+</script>
+</body>
+</html>

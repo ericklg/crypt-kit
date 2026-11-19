@@ -44,11 +44,11 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - _Requirements: R6, R4_
 
 - [ ] 8. Price Poltergeist app (Nov 25-27)
-  - [ ] 8.1 Read CheapShark usage notes; record them in `steering/price-sources.md`
-  - [ ] 8.2 `PriceSource` interface, fixture source, CheapShark source with server-side cache
-  - [ ] 8.3 Price-drop detector + contract test, verdict prompt (with historic low), open-link action
-  - [ ] 8.4 Watchlist search/add via `PriceSource.search`
-  - [ ] 8.5 Theme matched to the chosen mockup; BotID on action routes
+  - [x] 8.1 Read CheapShark usage notes; record them in `steering/price-sources.md`
+  - [x] 8.2 `PriceSource` interface, fixture source, CheapShark source with server-side cache
+  - [x] 8.3 Price-drop detector + contract test, verdict prompt (with historic low), open-link action
+  - [ ] 8.4 Watchlist search/add via `PriceSource.search` (mockups in `mockups/watchlist/`, waiting for a pick)
+  - [x] 8.5 Theme matched to the chosen mockup; BotID on action routes
   - [ ] 8.6 (Stretch, only if on schedule by Nov 28) Best Buy source behind `BESTBUY_API_KEY`
   - _Requirements: R7, R4_
 
