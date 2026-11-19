@@ -22,12 +22,13 @@ Requires Node 26 (see `.nvmrc`) and pnpm 12.
 
 ```sh
 pnpm install
-pnpm typecheck   # tsc -b
+pnpm typecheck   # tsc: packages, each app, e2e
 pnpm test        # vitest run
+pnpm build && pnpm e2e           # Playwright smoke test per app, on seeded demo data
 pnpm create-app release-wraith   # a new app in apps/release-wraith; see its README
 ```
 
-CI runs the same typecheck and tests on every pull request and on pushes to `main`.
+CI runs the same typecheck and tests on every pull request and on pushes to `main`, plus the smoke tests, whose screenshots and recordings are kept as the run's `smoke-tests` artifact.
 
 Kiro steering lives in `.kiro/steering/` and hooks in `.kiro/hooks/`. Saving a TypeScript file runs only its related tests, and finishing a spec task runs the full typecheck and test suite.
 

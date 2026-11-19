@@ -58,7 +58,7 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - _Requirements: R8.3-R8.5, R9.4_
 
 - [ ] 10. Verify (Nov 29-30)
-  - [ ] 10.1 Playwright smoke per app; screenshots and a recording of the banish flow
+  - [x] 10.1 Playwright smoke per app; screenshots and a recording of the banish flow
   - [ ] 10.2 New-user usability review by a fresh sub-agent; fold in findings
   - [ ] 10.3 Pixel compare each app against its chosen mockup
   - _Requirements: R5_

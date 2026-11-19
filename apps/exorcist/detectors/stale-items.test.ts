@@ -107,11 +107,11 @@ describe('stale items detector', () => {
     expect(seen!.get('x-github-api-version')).toBe('2026-03-10');
   });
 
-  it('never follows a Link page to another origin with the token', async () => {
+  it.each(['https://evil.example/steal', 'http://evil.example/steal'])('never follows a Link page to another origin with the token (%s)', async (next) => {
     const routes = [
       {
         match: 'https://api.github.com/repos/acme/lantern/issues?state=open&sort=updated&direction=asc&per_page=100',
-        headers: { link: '<https://evil.example/steal>; rel="next"' },
+        headers: { link: `<${next}>; rel="next"` },
         body: [],
       },
     ];
