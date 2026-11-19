@@ -160,6 +160,11 @@
   .ck-d-actions .ck-hint { margin-left: 0; width: 100%; }
 }
 
+/* No keyboard to speak of on a touch screen: drop the shortcut hints there. */
+@media (hover: none) and (pointer: coarse) {
+  .ck-keys, .ck-board kbd { display: none; }
+}
+
 /* Motion off: the OS setting, or theme.motion = 'reduced' (data-motion on .ck-board). */
 @media (prefers-reduced-motion: reduce) {
   .ck-board *, .ck-board *::before, .ck-board *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; }

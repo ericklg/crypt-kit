@@ -25,7 +25,7 @@ export function exorcistTheme(repos: readonly string[]): BoardTheme {
     },
     copy: {
       name: 'Exorcist',
-      sub: repos.join(', '),
+      sub: `Quiet issues and pull requests in ${repos.join(', ')}`,
       openLabel: 'haunting',
       scoreLabel: 'banished this week',
       approve: 'Banish',
@@ -38,7 +38,7 @@ export function exorcistTheme(repos: readonly string[]): BoardTheme {
       sourceLabel: 'Open on GitHub',
       // Not "the comment wasn't posted": the comment may have landed before the close failed.
       actionFailedTitle: 'Banishing didn’t finish',
-      waiting: 'This run reached its draft limit. It’s first in line for the next run.',
+      waiting: 'Only a few drafts are written per run. This one is first in line for the next.',
       emptyTitle: 'All quiet in the crypt',
       emptyBody: 'No stale issues or pull requests.',
       status: {
