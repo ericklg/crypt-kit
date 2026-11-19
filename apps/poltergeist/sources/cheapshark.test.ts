@@ -157,6 +157,31 @@ describe('CheapShark source', () => {
     await expect(two.search('celeste', ctx(fetch))).resolves.toEqual([]);
   });
 
+  it('lets a shared entry expire when it was written, not when another instance read it', async () => {
+    const values = new Map<string, { value: string; expires: number }>();
+    let t = 0;
+    const shared = {
+      get: async (k: string) => {
+        const v = values.get(k);
+        return v && v.expires > t ? v.value : null;
+      },
+      set: async (k: string, value: string, ttl: number) => void values.set(k, { value, expires: t + ttl }),
+    };
+    let calls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return Response.json([]);
+    };
+    const one = createCheapSharkSource({ shared, now: () => t });
+    const two = createCheapSharkSource({ shared, now: () => t });
+    await one.search('batman', ctx(fetch)); // written at 0, expires at 1 h
+    t = 59 * 60_000;
+    await two.search('batman', ctx(fetch)); // read from the shared cache
+    t = 61 * 60_000;
+    await two.search('batman', ctx(fetch));
+    expect(calls).toBe(2); // fetched again just after the original hour
+  });
+
   it('skips unknown games, non-numeric IDs and deals with odd IDs', async () => {
     const odd = { ...recordedGames['612'], deals: [{ ...recordedGames['612'].deals[0]!, dealID: 'abc"><script>' }] };
     const { fetch, calls } = fixtureFetch([

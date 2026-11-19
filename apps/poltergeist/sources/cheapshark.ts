@@ -98,11 +98,9 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
       if (hit && hit.expires > now()) return hit.data as T;
       if (shared) {
         const stored = await shared.get(cacheKey(path));
-        if (stored !== null) {
-          const data = JSON.parse(stored) as T;
-          cache.set(path, { expires: now() + ttl, data });
-          return data;
-        }
+        // Not copied into the in-memory cache: that would restart its clock, and the
+        // shared entry's own expiry is the one that counts.
+        if (stored !== null) return JSON.parse(stored) as T;
         blockedUntil = Math.max(blockedUntil, Number(await shared.get(BLOCK_KEY)) || 0);
       }
       if (blockedUntil > now()) throw new CheapSharkRateLimitError(blockedUntil);
