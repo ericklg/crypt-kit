@@ -37,6 +37,7 @@ export const DEFAULT_UI_COPY: UiCopy = {
   runFailed: 'The run didn’t finish. Refresh to see the current state.',
   linkBlocked: 'Your browser blocked the new tab.',
   openLink: 'Open it here',
+  dismiss: 'Dismiss',
   unconfirmed: 'We couldn’t confirm what happened. Check the source and refresh before trying again.',
 };
 

@@ -98,15 +98,20 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
     return result;
   };
 
-  /** storeID → name. Display only, so a failure leaves names out instead of failing the poll. */
+  /**
+   * storeID → name. Display only, so a failure doesn't fail the poll. It reuses the last
+   * names that loaded, because quotes that suddenly lose their store would change the
+   * payload and redraft verdicts over an outage that changed no price.
+   */
+  let lastStores = new Map<string, string>();
   const storeNames = async (ctx: SourceContext): Promise<Map<string, string>> => {
     try {
       const stores = await get<Store[]>('/stores', ctx, STORES_CACHE_MS);
-      return new Map(stores.map((s) => [s.storeID, s.storeName]));
+      lastStores = new Map(stores.map((s) => [s.storeID, s.storeName]));
     } catch (error) {
       if (error instanceof CheapSharkRateLimitError) throw error;
-      return new Map();
     }
+    return lastStores;
   };
 
   return {

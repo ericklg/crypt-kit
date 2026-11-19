@@ -34,7 +34,7 @@ export function getRunner(): Runner<PriceDrop> {
   const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
   runner = createRunner<PriceDrop>({
     detector: createPriceDropsDetector({ source: getSource(), watchlist: async () => c.watchlist }),
-    agent: createAiAgent<PriceDrop>({ model: modelFromEnv(), instructions: VERDICT_INSTRUCTIONS, describe: describePriceDrop }),
+    agent: createAiAgent<PriceDrop>({ model: () => modelFromEnv(), instructions: VERDICT_INSTRUCTIONS, describe: describePriceDrop }),
     action: createOpenDealAction(),
     // Its own table, so Poltergeist and Exorcist can share one database.
     store: createSqliteStore({ url, tableName: 'poltergeist_haunts', ...(authToken ? { authToken } : {}) }),

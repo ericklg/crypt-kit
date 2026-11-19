@@ -13,10 +13,11 @@ describe('config', () => {
     });
   });
 
-  it('reads a CheapShark watchlist of gameId:target pairs', () => {
-    expect(loadConfig({ POLTERGEIST_SOURCE: 'cheapshark', POLTERGEIST_WATCHLIST: '612:3, 128:15.50' }).watchlist).toEqual([
+  it('reads a CheapShark watchlist of gameId:target pairs, including $0 for free games', () => {
+    expect(loadConfig({ POLTERGEIST_SOURCE: 'cheapshark', POLTERGEIST_WATCHLIST: '612:3, 128:15.50, 167910:0' }).watchlist).toEqual([
       { itemId: '612', target: 3 },
       { itemId: '128', target: 15.5 },
+      { itemId: '167910', target: 0 },
     ]);
   });
 

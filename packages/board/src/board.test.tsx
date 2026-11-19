@@ -624,6 +624,18 @@ describe('approve opens a link', () => {
     open.mockRestore();
   });
 
+  it('keeps the blocked-tab message until it’s used or dismissed', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { container } = render1(async () => ({ ok: true, url: 'https://example.com/deal' }));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await screen.findByRole('alert');
+    await act(() => new Promise((r) => setTimeout(r, 2800))); // past the normal message timeout
+    const alert = screen.getByRole('alert');
+    fireEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    open.mockRestore();
+  }, 10_000);
+
   it('never opens a non-https link', async () => {
     const tab = fakeTab();
     const open = vi.spyOn(window, 'open').mockReturnValue(tab as never);

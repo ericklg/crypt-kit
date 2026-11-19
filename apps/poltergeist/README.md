@@ -8,9 +8,9 @@ Prices come from [CheapShark](https://www.cheapshark.com/) (no API key). Its usa
 
 | Variable | Required | What it is |
 | --- | --- | --- |
-| `CRYPT_MODEL_ID` | yes | Model for verdicts. See `@crypt-kit/agent` (`CRYPT_MODEL_PROVIDER`, credentials) |
+| `CRYPT_MODEL_ID` | for verdicts | Model for verdicts. See `@crypt-kit/agent` (`CRYPT_MODEL_PROVIDER`, credentials). Without it the board still loads, and new verdicts fail with a message naming it |
 | `POLTERGEIST_SOURCE` | no | `fixture` (default: demo prices, no network) or `cheapshark` (live) |
-| `POLTERGEIST_WATCHLIST` | for `cheapshark` | `gameId:target` pairs, e.g. `612:3, 128:15.50`. Game IDs are CheapShark's |
+| `POLTERGEIST_WATCHLIST` | for `cheapshark` | `gameId:target` pairs, e.g. `612:3, 128:15.50`. Game IDs are CheapShark's. A target of `0` alerts when a game is free |
 | `CHEAPSHARK_CONTACT` | no | Added to the User-Agent CheapShark sees, e.g. an email |
 | `CRYPT_BOARD_PASSWORD` | one of these two | At least 12 characters. The browser asks for it, and every action checks it |
 | `CRYPT_PUBLIC_DEMO=1` | one of these two | Anyone may act. Fine with fixture prices |

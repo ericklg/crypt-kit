@@ -8,7 +8,7 @@ Stale GitHub issues and pull requests become ghosts on a haunted board, each wit
 | --- | --- | --- |
 | `EXORCIST_REPOS` | yes | Comma-separated `owner/repo` list to watch |
 | `GITHUB_TOKEN` | yes | Fine-grained token limited to those repos, with **Issues** and **Pull requests** read/write |
-| `CRYPT_MODEL_ID` | yes | Model for drafts. See `@crypt-kit/agent` (`CRYPT_MODEL_PROVIDER`, credentials) |
+| `CRYPT_MODEL_ID` | for drafts | Model for drafts. See `@crypt-kit/agent` (`CRYPT_MODEL_PROVIDER`, credentials). Without it the board still loads, and new drafts fail with a message naming it |
 | `CRYPT_BOARD_PASSWORD` | one of these two | At least 12 characters. The browser asks for it, and every action checks it |
 | `CRYPT_PUBLIC_DEMO=1` | one of these two | Anyone may act. Only for a sandbox repo |
 | `EXORCIST_STALE_DAYS` | no | Days without activity before an item is stale. Default 30 |

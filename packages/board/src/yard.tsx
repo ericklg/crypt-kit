@@ -101,9 +101,10 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   }, []);
 
   useEffect(() => {
-    if (!toast) return;
-    // A toast with a link stays long enough to use it.
-    const id = setTimeout(() => setToast((t) => (t?.id === toast.id ? null : t)), toast.link ? 10_000 : 2600);
+    // A message with a link stays until it's used or dismissed: it may be the only way left
+    // to open that deal, and keyboard and screen-reader users need time to reach it.
+    if (!toast || toast.link) return;
+    const id = setTimeout(() => setToast((t) => (t?.id === toast.id ? null : t)), 2600);
     return () => clearTimeout(id);
   }, [toast]);
 
@@ -417,9 +418,14 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
             <Icon name={toast.tone === 'fail' ? 'alert' : 'check'} />
             <span>{toast.message}</span>
             {toast.link ? (
-              <a className="ck-link" href={toast.link.href} target="_blank" rel="noopener noreferrer">
-                {toast.link.text}
-              </a>
+              <>
+                <a className="ck-link" href={toast.link.href} target="_blank" rel="noopener noreferrer" onClick={() => setToast(null)}>
+                  {toast.link.text}
+                </a>
+                <button className="ck-btn ck-btn-ghost" type="button" onClick={() => setToast(null)} aria-label={copy.ui.dismiss}>
+                  <Icon name="x" />
+                </button>
+              </>
             ) : null}
           </div>
         ) : null}

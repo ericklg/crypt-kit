@@ -109,6 +109,8 @@ export interface UiCopy {
   linkBlocked: string;
   /** Text of the link in that message. */
   openLink: string;
+  /** Accessible name of the button that closes a message. */
+  dismiss: string;
   /** Shown when a request fails in transit: the server may or may not have acted. */
   unconfirmed: string;
 }

@@ -109,6 +109,23 @@ describe('CheapShark source', () => {
     expect(lego).toMatchObject({ itemId: '612', price: 2.99, store: null });
   });
 
+  it('keeps the last store names when a later store refresh fails, so payloads don’t change', async () => {
+    let t = 0;
+    let storesUp = true;
+    const fetch: typeof globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith('/stores')) return storesUp ? Response.json(recordedCheapSharkRoutes[0]!.body) : new Response('down', { status: 500 });
+      return Response.json({ '612': recordedGames['612'] });
+    };
+    const source = createCheapSharkSource({ now: () => t });
+    const [before] = await source.quote(['612'], ctx(fetch));
+    storesUp = false;
+    t = 25 * 60 * 60 * 1000; // both caches expired
+    const [after] = await source.quote(['612'], ctx(fetch));
+    expect(before!.store).toBe('WinGameStore');
+    expect(after).toEqual(before);
+  });
+
   it('skips unknown games, non-numeric IDs and deals with odd IDs', async () => {
     const odd = { ...recordedGames['612'], deals: [{ ...recordedGames['612'].deals[0]!, dealID: 'abc"><script>' }] };
     const { fetch, calls } = fixtureFetch([

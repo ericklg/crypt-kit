@@ -23,7 +23,7 @@ const watchlist = z
     for (const part of s.split(',').map((p) => p.trim()).filter(Boolean)) {
       const [itemId = '', target = ''] = part.split(':').map((x) => x.trim());
       const price = Number(target);
-      if (!ITEM.test(itemId) || !/^\d+(\.\d{1,2})?$/.test(target) || !(price > 0)) {
+      if (!ITEM.test(itemId) || !/^\d+(\.\d{1,2})?$/.test(target) || !(price >= 0)) {
         ctx.addIssue({ code: 'custom', message: `"${part.slice(0, 40)}" isn't itemId:targetPrice` });
         return z.NEVER;
       }
