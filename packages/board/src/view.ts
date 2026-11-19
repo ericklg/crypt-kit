@@ -58,5 +58,6 @@ export function toHauntView<P>(haunt: Haunt<P>, present: Presenter<P>, options: 
       : null,
     error: haunt.error,
     claimExpiresAt,
+    approvalRequest: haunt.approvalRequest ? { note: haunt.approvalRequest.note, at: haunt.approvalRequest.at } : null,
   };
 }

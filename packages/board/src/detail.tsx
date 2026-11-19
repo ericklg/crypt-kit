@@ -188,6 +188,16 @@ function DetailBody(props: HauntDetailProps) {
 
   return (
     <>
+      {view.approvalRequest ? (
+        <div className="ck-notice" data-tone="request">
+          <Icon name="spark" />
+          <div>
+            <strong>{ui.reviewRequested}</strong>
+            {view.approvalRequest.note ? <p>{view.approvalRequest.note}</p> : null}
+            <p>{fill(ui.reviewRequestedHint, { ...words, approveLabel: copy.approve })}</p>
+          </div>
+        </div>
+      ) : null}
       {failed ? (
         <div className="ck-notice" data-tone="fail">
           <Icon name="alert" />
