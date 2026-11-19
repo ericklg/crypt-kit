@@ -1,0 +1,11 @@
+import { boardPasswordChallenge } from '@crypt-kit/board/server';
+import { NextResponse, type NextRequest } from 'next/server';
+
+/** Asks the browser for CRYPT_BOARD_PASSWORD when it's set. app/guard.ts checks it again on every action. */
+export function proxy(request: NextRequest) {
+  return boardPasswordChallenge(process.env.CRYPT_BOARD_PASSWORD, request.headers.get('authorization'), '{{title}}') ?? NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/cron).*)'],
+};

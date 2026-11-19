@@ -1,0 +1,6 @@
+import { initBotId } from 'botid/client/core';
+
+// The board's server actions POST to the page they run on ("/").
+initBotId({
+  protect: [{ path: '/', method: 'POST' }],
+});

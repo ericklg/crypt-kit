@@ -1,0 +1,13 @@
+{
+  "name": "create-crypt-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scaffolds a new Crypt Kit app in apps/<name>.",
+  "bin": {
+    "create-crypt-app": "./bin.mjs"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}

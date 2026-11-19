@@ -52,9 +52,9 @@ Target: feature-complete Nov 30, polish and video Dec 1-3, submit by Dec 4 2:00 
   - [x] 8.6 (Stretch, only if on schedule by Nov 28) Best Buy source behind `BESTBUY_API_KEY`
   - _Requirements: R7, R4_
 
-- [ ] 9. Kiro extras (Nov 27-28)
-  - [ ] 9.1 MCP server (`list_haunts`, `get_haunt`, `redraft_haunt`, `request_approval`)
-  - [ ] 9.2 `create-crypt-app` scaffold; verify a third app builds from it
+- [x] 9. Kiro extras (Nov 27-28)
+  - [x] 9.1 MCP server (`list_haunts`, `get_haunt`, `redraft_haunt`, `request_approval`)
+  - [x] 9.2 `create-crypt-app` scaffold; verify a third app builds from it
   - _Requirements: R8.3-R8.5, R9.4_
 
 - [ ] 10. Verify (Nov 29-30)

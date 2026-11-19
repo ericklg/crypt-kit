@@ -223,7 +223,7 @@ The server exposes these tools: `list_haunts`, `get_haunt`, `redraft_haunt`, and
   - On save of `**/detectors/*.ts`, run that detector's contract tests.
   - On save of `packages/core/**`, run the core tests.
 - **MCP:** the server above, used during development to triage demo data.
-- **Scaffold:** `pnpm create crypt-app <name>` generates the detector, action, prompt, theme and a fixture test.
+- **Scaffold:** `pnpm create-app <name>` (the `create-crypt-app` package) writes `apps/<name>`: a detector, action, prompt and theme to edit, a fixture test, and the board, cron and MCP wiring. It runs as generated, on sample items.
 
 ## Testing
 

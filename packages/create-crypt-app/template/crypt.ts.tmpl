@@ -1,0 +1,5 @@
+// The app's wiring, for Next.js code only: `server-only` fails the build if a client
+// component imports it, so secrets can't reach the browser.
+import 'server-only';
+
+export * from './runtime';

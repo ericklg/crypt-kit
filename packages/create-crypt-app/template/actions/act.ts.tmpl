@@ -1,0 +1,17 @@
+import type { Action } from '@crypt-kit/core';
+import type { Item } from '../detectors/items';
+
+// STEP 2 of 4: what approving does. The runner calls this at most once per approval, only
+// after a person approves on the board. Forward ctx.signal to every request, and make the
+// side effect safe to retry (Exorcist's comment marker is one way). Throw, or return
+// { ok: false, error }, when it fails: the haunt stays open with that error.
+
+export function createAct(): Action<Item> {
+  return {
+    id: '{{name}}-act',
+    async run(finding, draft) {
+      // TODO: replace with the real side effect, e.g. post `draft.proposal` somewhere.
+      return { ok: true, message: `Marked “${finding.title}” as handled.`, url: finding.url };
+    },
+  };
+}

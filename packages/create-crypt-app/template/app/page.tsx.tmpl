@@ -1,0 +1,33 @@
+import { ModelConfigError } from '@crypt-kit/agent';
+import { Board } from '@crypt-kit/board';
+import { loadBoard } from '@crypt-kit/board/server';
+import { connection } from 'next/server';
+import { ConfigError } from '../config';
+import { getConfig, getRunner } from '../crypt';
+import { itemPresenter } from '../presenter';
+import { appTheme } from '../theme';
+import { approve, redraft, run, settle, spare } from './actions';
+
+const actions = { approve, spare, redraft, settle, run };
+
+export default async function Page() {
+  await connection(); // live data: render per request
+  let runner;
+  try {
+    getConfig();
+    runner = getRunner();
+  } catch (error) {
+    if (error instanceof ConfigError || error instanceof ModelConfigError) {
+      return (
+        <main className="setup">
+          <h1>{'{{title}}'} needs setting up</h1>
+          <p>{error.message}</p>
+        </main>
+      );
+    }
+    throw error;
+  }
+  const now = new Date();
+  const { haunts, score } = await loadBoard(runner, itemPresenter, { now });
+  return <Board theme={appTheme()} haunts={haunts} score={score} weeklyGoal={10} actions={actions} now={now.toISOString()} />;
+}

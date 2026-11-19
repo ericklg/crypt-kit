@@ -1,0 +1,18 @@
+import type { Finding } from '@crypt-kit/core';
+import type { Item } from './detectors/items';
+
+// STEP 3 of 4: what the agent drafts for each finding. The kit appends its own rules about
+// untrusted input, and the person edits and approves the draft before anything happens.
+export const INSTRUCTIONS = `
+Each finding is one item whose value just reached the person's threshold. Draft the short
+message they would send about it: two or three plain sentences saying what changed and
+what to do next. Don't invent facts that aren't in the finding.
+
+In "summary", say in one sentence why it's on the board.
+`.trim();
+
+/** What the model sees. Send only what the draft needs: all of it goes to the model provider. */
+export function describeItem(finding: Finding<Item>): unknown {
+  const p = finding.payload;
+  return { title: p.title, value: p.value, threshold: p.threshold, url: p.url };
+}

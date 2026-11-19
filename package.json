@@ -7,7 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "typecheck": "tsc -b && tsc -p apps/exorcist && tsc -p apps/poltergeist",
+    "typecheck": "tsc -b && pnpm -r --filter \"./apps/*\" typecheck",
+    "create-app": "node packages/create-crypt-app/bin.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:related": "vitest related --run"

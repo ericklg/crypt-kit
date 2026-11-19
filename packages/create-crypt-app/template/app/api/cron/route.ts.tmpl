@@ -1,0 +1,15 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { getConfig, getRunner } from '../../../crypt';
+
+const digest = (s: string) => createHash('sha256').update(s).digest();
+
+/** Daily scheduled run (vercel.json), behind CRON_SECRET. Detects and drafts; never approves. */
+export async function GET(request: Request) {
+  const secret = getConfig().cronSecret;
+  const sent = request.headers.get('authorization') ?? '';
+  if (!secret || !timingSafeEqual(digest(sent), digest(`Bearer ${secret}`))) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const report = await getRunner().run();
+  return Response.json(report, { status: report.ok ? 200 : 502 });
+}
