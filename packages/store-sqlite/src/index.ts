@@ -294,6 +294,8 @@ export interface WatchEntry {
 export interface SqliteWatchlist {
   /** Entries for one source, oldest first. Seeds the list from `seed` the first time. */
   list(source: string): Promise<WatchEntry[]>;
+  /** Adds an entry. If it's already watched, nothing changes (an earlier target is kept). */
+  add(entry: Omit<WatchEntry, 'addedAt'>): Promise<void>;
   /** Adds or updates an entry (by source and item ID). */
   put(entry: Omit<WatchEntry, 'addedAt'>): Promise<void>;
   /** Changes an existing entry's target. False when it isn't watched. */
@@ -373,6 +375,13 @@ export function createSqliteWatchlist(options: SqliteWatchlistOptions = {}): Sql
       }
       const result = await client.execute({ sql: `select * from ${t} where source = ? order by added_at, item_id`, args: [source] });
       return result.rows.map(toEntry);
+    },
+    async add(entry) {
+      await migrate();
+      await client.execute({
+        sql: `insert into ${t} (source, item_id, title, target, added_at) values (?, ?, ?, ?, ?) on conflict do nothing`,
+        args: [entry.source, entry.itemId, entry.title, entry.target, now().toISOString()],
+      });
     },
     async put(entry) {
       await migrate();

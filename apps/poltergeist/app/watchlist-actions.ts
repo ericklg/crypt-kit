@@ -123,7 +123,8 @@ export async function watchGame(itemId: string): Promise<WatchlistResult> {
         throw new BoardAccessError('Prices couldn’t be loaded, so the game wasn’t added. Try again in a minute.');
       });
       if (!quote) throw new BoardAccessError('That game has no price right now, so it can’t be watched.');
-      await list.put({ source: source.id, itemId, title: quote.title, target: defaultTarget(quote) });
+      // add, not put: a request that raced another add must not reset a target set since.
+      await list.add({ source: source.id, itemId, title: quote.title, target: defaultTarget(quote) });
       refresh();
     }
     return { ok: true as const, games: await readGames() };

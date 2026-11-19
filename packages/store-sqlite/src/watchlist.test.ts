@@ -36,6 +36,8 @@ describe('createSqliteWatchlist', () => {
     expect(await w.remove('cheapshark', '128')).toBe(true);
     expect(await w.remove('cheapshark', '128')).toBe(false);
     expect(await w.list('cheapshark')).toEqual([expect.objectContaining({ itemId: '612', title: 'LEGO Batman', target: 2.5 })]);
+    await w.add({ source: 'cheapshark', itemId: '612', title: 'LEGO Batman', target: 99 }); // already watched: kept
+    expect((await w.list('cheapshark'))[0]!.target).toBe(2.5);
     expect((await w.list('fixture')).map((e) => e.itemId)).toEqual(['celeste']);
   });
 

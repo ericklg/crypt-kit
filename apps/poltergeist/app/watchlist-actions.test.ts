@@ -12,6 +12,9 @@ const refresh = vi.hoisted(() => vi.fn());
 
 const watchlist = {
   list: async (source: string) => state.entries.filter((e) => e.source === source),
+  add: async (e: Omit<Entry, 'addedAt'>) => {
+    if (!state.entries.some((x) => x.source === e.source && x.itemId === e.itemId)) state.entries = [...state.entries, { ...e, addedAt: 'now' }];
+  },
   put: async (e: Omit<Entry, 'addedAt'>) => {
     state.entries = [...state.entries.filter((x) => !(x.source === e.source && x.itemId === e.itemId)), { ...e, addedAt: 'now' }];
   },

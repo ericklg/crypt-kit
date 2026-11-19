@@ -9,6 +9,8 @@ const STORES_CACHE_MS = 24 * 60 * 60 * 1000;
 /** Multiple Game Lookup takes at most 25 IDs. */
 const MAX_IDS_PER_CALL = 25;
 const MAX_SEARCH_RESULTS = 10;
+/** Responses kept in memory per instance; every distinct search is one. */
+const MAX_CACHED = 200;
 const GAME_ID = /^\d{1,10}$/;
 
 /** CheapShark game IDs are 1–10 digits. */
@@ -87,6 +89,14 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
   const now = options.now ?? Date.now;
   const userAgent = options.contact ? `${USER_AGENT} ${options.contact.replace(/[^\x20-\x7e]/g, '')}` : USER_AGENT;
   const cache = new Map<string, { expires: number; data: unknown }>();
+  /** Keeps the in-memory cache small: expired entries go, then the oldest past the cap. */
+  const remember = (path: string, expires: number, data: unknown) => {
+    const t = now();
+    for (const [key, entry] of cache) if (entry.expires <= t) cache.delete(key);
+    cache.delete(path);
+    cache.set(path, { expires, data });
+    while (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value!);
+  };
   const shared = options.shared ?? null;
   let queue: Promise<unknown> = Promise.resolve();
   let blockedUntil = 0;
@@ -118,7 +128,7 @@ export function createCheapSharkSource(options: CheapSharkOptions = {}): PriceSo
       if (!res.ok) throw new Error(`CheapShark returned ${res.status} for ${path.split('?')[0]}`);
       const text = await res.text();
       const data = JSON.parse(text) as T;
-      cache.set(path, { expires: now() + ttl, data });
+      remember(path, now() + ttl, data);
       await shared?.set(cacheKey(path), text, ttl);
       return data;
     };

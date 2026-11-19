@@ -53,6 +53,21 @@ describe('CheapShark source', () => {
     expect(calls.filter((c) => c.url.includes('/games')).length).toBe(2);
   });
 
+  it('keeps a bounded in-memory cache, newest entries kept', async () => {
+    let calls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return Response.json([]);
+    };
+    const source = createCheapSharkSource({ now: () => 0 });
+    for (let i = 0; i < 205; i++) await source.search(`game ${i}`, ctx(fetch));
+    expect(calls).toBe(205);
+    await source.search('game 204', ctx(fetch)); // recent: still cached
+    expect(calls).toBe(205);
+    await source.search('game 0', ctx(fetch)); // oldest: dropped past the cap
+    expect(calls).toBe(206);
+  });
+
   it('sends one request at a time', async () => {
     let inFlight = 0;
     let most = 0;
