@@ -49,10 +49,22 @@ async function gated<T extends { ok: true }>(body: () => Promise<T>): Promise<T 
   }
 }
 
+/**
+ * Stored entries with today's prices. Prices are best-effort: if the source fails (e.g. a
+ * 429), the list still shows, with no prices, so a committed edit is never reported as
+ * failed. Polls still fail loudly on source errors; that's the detector, not this.
+ */
 async function readGames(): Promise<WatchedGame[]> {
   const source = getSource();
   const entries = await getWatchlist().list(source.id);
-  const quotes = entries.length ? await source.quote(entries.map((e) => e.itemId), sourceCtx()) : [];
+  let quotes: PriceQuote[] = [];
+  if (entries.length) {
+    try {
+      quotes = await source.quote(entries.map((e) => e.itemId), sourceCtx());
+    } catch {
+      quotes = [];
+    }
+  }
   const byId = new Map(quotes.map((q) => [q.itemId, q]));
   return entries.map((e) => {
     const q = byId.get(e.itemId);
@@ -77,7 +89,13 @@ export async function searchGames(query: string): Promise<SearchResult> {
     const q = typeof query === 'string' ? query.trim().slice(0, MAX_QUERY) : '';
     if (q.length < 2) return { ok: true as const, hits: [] };
     const source = getSource();
-    const [hits, watched] = await Promise.all([source.search(q, sourceCtx()), getWatchlist().list(source.id)]);
+    const [hits, watched] = await Promise.all([
+      source.search(q, sourceCtx()).catch((error: unknown) => {
+        if (error instanceof CheapSharkRateLimitError) throw error;
+        throw new BoardAccessError('Search isn’t available right now. Try again in a minute.');
+      }),
+      getWatchlist().list(source.id),
+    ]);
     const ids = new Set(watched.map((w) => w.itemId));
     return {
       ok: true as const,
@@ -100,7 +118,10 @@ export async function watchGame(itemId: string): Promise<WatchlistResult> {
     const watched = await list.list(source.id);
     if (!watched.some((w) => w.itemId === itemId)) {
       if (watched.length >= MAX_WATCHED) throw new BoardAccessError(`You can watch up to ${MAX_WATCHED} games. Remove one first.`);
-      const [quote] = await source.quote([itemId], sourceCtx());
+      const [quote] = await source.quote([itemId], sourceCtx()).catch((error: unknown) => {
+        if (error instanceof CheapSharkRateLimitError) throw error;
+        throw new BoardAccessError('Prices couldn’t be loaded, so the game wasn’t added. Try again in a minute.');
+      });
       if (!quote) throw new BoardAccessError('That game has no price right now, so it can’t be watched.');
       await list.put({ source: source.id, itemId, title: quote.title, target: defaultTarget(quote) });
       refresh();

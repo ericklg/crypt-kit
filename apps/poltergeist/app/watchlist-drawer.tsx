@@ -29,6 +29,7 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: 'ok' | 'fail' } | null>(null);
 
   const apply = (res: WatchlistResult, ok?: string) => {
@@ -40,28 +41,49 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
     }
   };
 
-  const open = async () => {
-    dialog.current?.showModal();
-    setMessage(null);
-    apply(await loadWatchlist());
+  const load = async () => {
+    setLoadFailed(false);
+    try {
+      const res = await loadWatchlist();
+      apply(res);
+      if (!res.ok) setLoadFailed(true);
+    } catch {
+      setLoadFailed(true);
+      setMessage({ text: 'Your watchlist didn’t load. Check your connection and try again.', tone: 'fail' });
+    }
   };
 
-  // Search after typing pauses; answers to older queries are dropped.
+  const open = () => {
+    dialog.current?.showModal();
+    setMessage(null);
+    void load();
+  };
+
+  // Search after typing pauses. Every change, even to a query too short to search, starts
+  // a new sequence, so answers to older queries are dropped.
   useEffect(() => {
     const q = query.trim();
+    const seq = ++searchSeq.current;
     if (q.length < 2) {
       setHits(null);
       setSearching(false);
       return;
     }
-    const seq = ++searchSeq.current;
     setSearching(true);
     const id = setTimeout(async () => {
-      const res = await searchGames(q);
+      let res: Awaited<ReturnType<typeof searchGames>>;
+      try {
+        res = await searchGames(q);
+      } catch {
+        res = { ok: false, message: 'Search didn’t go through. Check your connection and try again.' };
+      }
       if (seq !== searchSeq.current) return;
       setSearching(false);
       if (res.ok) setHits(res.hits);
-      else setMessage({ text: res.message, tone: 'fail' });
+      else {
+        setHits(null);
+        setMessage({ text: res.message, tone: 'fail' });
+      }
     }, SEARCH_DELAY_MS);
     return () => clearTimeout(id);
   }, [query]);
@@ -103,8 +125,13 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
         ref={dialog}
         className="wl-drawer"
         aria-labelledby="wl-title"
-        // A click on the backdrop lands on the dialog itself.
-        onClick={(e) => e.target === e.currentTarget && dialog.current?.close()}
+        // Only a click outside the drawer's box is a backdrop click; its own padding isn't.
+        onClick={(e) => {
+          if (e.target !== e.currentTarget) return;
+          const r = e.currentTarget.getBoundingClientRect();
+          const outside = e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+          if (outside) dialog.current?.close();
+        }}
       >
         <button className="ck-btn ck-btn-ghost wl-close" type="button" onClick={() => dialog.current?.close()} aria-label="Close">
           <Icon name="x" />
@@ -153,7 +180,16 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
 
         <h3 className="wl-label">Watching{games ? ` (${games.length})` : ''}</h3>
         {games === null ? (
-          <p className="wl-note">Loading…</p>
+          loadFailed ? (
+            <p className="wl-note">
+              Your watchlist didn’t load.{' '}
+              <button className="ck-btn" type="button" onClick={() => void load()}>
+                Try again
+              </button>
+            </p>
+          ) : (
+            <p className="wl-note">Loading…</p>
+          )
         ) : games.length ? (
           <ul className="wl-list" aria-label="Watched games">
             {games.map((g) => (
@@ -175,7 +211,8 @@ export function WatchlistDrawer({ sourceName }: { sourceName: string }) {
                       inputMode="decimal"
                       aria-label={`Target price for ${g.title}, in dollars`}
                       onBlur={(e) => saveTarget(g, e.currentTarget.value)}
-                      disabled={busy === `target:${g.itemId}`}
+                      // All targets wait while anything saves, so no edit is dropped.
+                      disabled={busy !== null}
                     />
                   </label>
                 </form>

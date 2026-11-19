@@ -6,7 +6,7 @@ const pkg = (path: string) => fileURLToPath(new URL(`../../packages/${path}`, im
 export default defineProject({
   test: {
     name: 'poltergeist',
-    include: ['**/*.test.ts'],
+    include: ['**/*.test.ts', '**/*.test.tsx'],
     exclude: ['node_modules/**', '.next/**'],
   },
   // Test against the packages' source, so `pnpm test` doesn't depend on a prior build.

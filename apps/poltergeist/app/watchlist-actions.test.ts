@@ -89,6 +89,30 @@ describe('watchlist actions', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it('still lists games, without prices, when the source fails, so a committed edit isn’t reported as failed', async () => {
+    state.entries.push({ source: 'fixture', itemId: 'balatro', title: 'Balatro', target: 13, addedAt: 'b' });
+    const quote = vi.spyOn(source, 'quote').mockRejectedValue(new Error('CheapShark returned 503 for /games'));
+    try {
+      expect(await unwatchGame('celeste')).toEqual({ ok: true, games: [{ itemId: 'balatro', title: 'Balatro', target: 13, price: null, store: null }] });
+      expect(state.entries.map((e) => e.itemId)).toEqual(['balatro']);
+    } finally {
+      quote.mockRestore();
+    }
+  });
+
+  it('explains a failed search or add instead of failing the request', async () => {
+    const search = vi.spyOn(source, 'search').mockRejectedValue(new Error('CheapShark returned 503 for /games'));
+    const quote = vi.spyOn(source, 'quote').mockRejectedValue(new Error('CheapShark returned 503 for /games'));
+    try {
+      expect(await searchGames('celeste')).toEqual({ ok: false, message: 'Search isn’t available right now. Try again in a minute.' });
+      expect(await watchGame('balatro')).toEqual({ ok: false, message: 'Prices couldn’t be loaded, so the game wasn’t added. Try again in a minute.' });
+      expect(state.entries.map((e) => e.itemId)).toEqual(['celeste']);
+    } finally {
+      search.mockRestore();
+      quote.mockRestore();
+    }
+  });
+
   it('goes through the same access gate as the board', async () => {
     state.config = { boardPassword: null, publicDemo: false, source: 'fixture' };
     for (const res of [await loadWatchlist(), await searchGames('celeste'), await watchGame('balatro'), await setTarget('celeste', '1'), await unwatchGame('celeste')]) {
