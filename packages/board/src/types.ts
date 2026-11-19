@@ -105,7 +105,7 @@ export interface UiCopy {
   running: string;
   runDone: string;
   runFailed: string;
-  /** Shown when approve should open a link but the browser blocked the new tab. */
+  /** Shown when approve should open a link but the browser blocked the new tab. `{title}` is the haunt's. */
   linkBlocked: string;
   /** Text of the link in that message. */
   openLink: string;

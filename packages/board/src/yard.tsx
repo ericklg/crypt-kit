@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { fill } from './copy.js';
 import { HauntDetail, type DraftEdits, type Pending } from './detail.js';
 import { Icon } from './icons.js';
 import { APPROVABLE, SPARABLE, StatusPill } from './status.js';
@@ -22,7 +23,7 @@ export interface YardProps {
 }
 
 type Leave = 'approve' | 'spare';
-type Toast = { id: number; message: string; tone: 'ok' | 'fail'; link?: { href: string; text: string } };
+type Toast = { id: number; message: string; tone: 'ok' | 'fail' };
 
 /** Only https links from the server are opened. */
 function safeLink(url: string | undefined): string | null {
@@ -79,6 +80,12 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   /** In-flight op per key. A Map, since finding keys are arbitrary strings ("toString"). */
   const [pending, setPending] = useState<ReadonlyMap<string, Exclude<Pending, null>>>(new Map());
   const [toast, setToast] = useState<Toast | null>(null);
+  /**
+   * Deal links whose tab the browser blocked. Kept apart from the passing message, and until
+   * each is used or dismissed: its haunt has left the board, so this is the only way to it.
+   */
+  const [blocked, setBlocked] = useState<ReadonlyArray<{ id: number; href: string; title: string }>>([]);
+  const dropBlocked = (id: number) => setBlocked((list) => list.filter((b) => b.id !== id));
   const [now, setNow] = useState(() => Date.parse(nowProp));
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -101,9 +108,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
   }, []);
 
   useEffect(() => {
-    // A message with a link stays until it's used or dismissed: it may be the only way left
-    // to open that deal, and keyboard and screen-reader users need time to reach it.
-    if (!toast || toast.link) return;
+    if (!toast) return;
     const id = setTimeout(() => setToast((t) => (t?.id === toast.id ? null : t)), 2600);
     return () => clearTimeout(id);
   }, [toast]);
@@ -282,7 +287,7 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
           } else {
             tab?.close();
             if (href) {
-              setToast({ id: Date.now(), message: copy.ui.linkBlocked, tone: 'fail', link: { href, text: copy.ui.openLink } });
+              setBlocked((list) => [...list, { id: Date.now() + Math.random(), href, title: view.title }]);
               return;
             }
           }
@@ -412,21 +417,23 @@ export function Yard({ views, copy, creature, actions, now: nowProp, defaultOpen
           />
         ) : null}
       </aside>
-      <div aria-live="polite">
+      <div className="ck-toasts" aria-live="polite">
+        {blocked.map((b) => (
+          <div className="ck-toast" data-tone="fail" role="alert" key={b.id}>
+            <Icon name="alert" />
+            <span>{fill(copy.ui.linkBlocked, { title: b.title })}</span>
+            <a className="ck-link" href={b.href} target="_blank" rel="noopener noreferrer" onClick={() => dropBlocked(b.id)}>
+              {copy.ui.openLink}
+            </a>
+            <button className="ck-btn ck-btn-ghost" type="button" onClick={() => dropBlocked(b.id)} aria-label={copy.ui.dismiss}>
+              <Icon name="x" />
+            </button>
+          </div>
+        ))}
         {toast ? (
           <div className="ck-toast" data-tone={toast.tone} role={toast.tone === 'fail' ? 'alert' : 'status'}>
             <Icon name={toast.tone === 'fail' ? 'alert' : 'check'} />
             <span>{toast.message}</span>
-            {toast.link ? (
-              <>
-                <a className="ck-link" href={toast.link.href} target="_blank" rel="noopener noreferrer" onClick={() => setToast(null)}>
-                  {toast.link.text}
-                </a>
-                <button className="ck-btn ck-btn-ghost" type="button" onClick={() => setToast(null)} aria-label={copy.ui.dismiss}>
-                  <Icon name="x" />
-                </button>
-              </>
-            ) : null}
           </div>
         ) : null}
       </div>

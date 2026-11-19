@@ -617,7 +617,7 @@ describe('approve opens a link', () => {
     const { container } = render1(async () => ({ ok: true, url: 'https://example.com/deal' }));
     fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('Your browser blocked the new tab.');
+    expect(alert.textContent).toContain('Your browser blocked the new tab for Crash on empty config.');
     const link = within(alert).getByRole('link', { name: 'Open it here' }) as HTMLAnchorElement;
     expect(link.href).toBe('https://example.com/deal');
     expect(link.rel).toBe('noopener noreferrer');
@@ -635,6 +635,32 @@ describe('approve opens a link', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     open.mockRestore();
   }, 10_000);
+
+  it('keeps each blocked link when later claims or spares show their own messages', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const urls: Record<string, string> = { 'a#1': 'https://example.com/one', 'a#2': 'https://example.com/two' };
+    const { container } = render(
+      <Board theme={linkTheme} haunts={views()} score={0} weeklyGoal={20} now={NOW}
+        actions={fakeActions({ approve: async (key: string) => ({ ok: true, url: urls[key]! }) }).actions} />,
+    );
+    const grave = (k: string) => [...container.querySelectorAll<HTMLElement>('[data-grave]')].find((el) => el.dataset.grave === k)!;
+
+    fireEvent.click(grave('a#1'));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(screen.getAllByRole('link', { name: 'Open it here' })).toHaveLength(1));
+    fireEvent.click(grave('a#2'));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Banish/ }));
+    await waitFor(() => expect(screen.getAllByRole('link', { name: 'Open it here' })).toHaveLength(2));
+    fireEvent.click(grave('a#3'));
+    fireEvent.click(within(drawerOf(container)).getByRole('button', { name: /Spare/ }));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Spared'));
+
+    const links = screen.getAllByRole('link', { name: 'Open it here' }) as HTMLAnchorElement[];
+    expect(links.map((l) => l.href)).toEqual(['https://example.com/one', 'https://example.com/two']);
+    fireEvent.click(links[0]!);
+    expect((screen.getAllByRole('link', { name: 'Open it here' }) as HTMLAnchorElement[]).map((l) => l.href)).toEqual(['https://example.com/two']);
+    open.mockRestore();
+  });
 
   it('never opens a non-https link', async () => {
     const tab = fakeTab();

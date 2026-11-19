@@ -134,7 +134,8 @@
 .ck-empty .ck-i-xl { color: var(--ck-accent); margin-bottom: 14px; animation: ck-bob 4s ease-in-out infinite; }
 .ck-empty h3 { font: 700 24px/1.2 var(--ck-font-display); color: var(--ck-ink); margin: 0 0 6px; }
 
-.ck-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: var(--ck-surface2); border: 1px solid var(--ck-line); box-shadow: 0 18px 40px -16px #000; animation: ck-toast-in .25s ease-out; }
+.ck-toasts { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); }
+.ck-toast { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; background: var(--ck-surface2); border: 1px solid var(--ck-line); box-shadow: 0 18px 40px -16px #000; animation: ck-toast-in .25s ease-out; }
 .ck-toast .ck-i { color: var(--ck-accent); }
 .ck-toast[data-tone='fail'] .ck-i { color: var(--ck-danger); }
 
@@ -142,7 +143,7 @@
 @keyframes ck-shimmer { to { background-position: -200% 0; } }
 @keyframes ck-bob { 50% { transform: translateY(-6px); } }
 @keyframes ck-drift { to { transform: translateX(6%); } }
-@keyframes ck-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+@keyframes ck-toast-in { from { opacity: 0; transform: translateY(8px); } }
 
 /* Narrow phones (down to 320px): stack and wrap so nothing overflows sideways. */
 @media (max-width: 600px) {
