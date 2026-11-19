@@ -25,6 +25,7 @@ pnpm install
 pnpm typecheck   # tsc: packages, each app, e2e
 pnpm test        # vitest run
 pnpm build && pnpm e2e           # Playwright smoke test per app, on seeded demo data
+                                 # (first time: pnpm exec playwright install chromium)
 pnpm create-app release-wraith   # a new app in apps/release-wraith; see its README
 ```
 
