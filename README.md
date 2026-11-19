@@ -28,7 +28,7 @@ pnpm build && pnpm e2e           # Playwright smoke test per app, on seeded demo
 pnpm create-app release-wraith   # a new app in apps/release-wraith; see its README
 ```
 
-CI runs the same typecheck and tests on every pull request and on pushes to `main`, plus the smoke tests, whose screenshots and recordings are kept as the run's `smoke-tests` artifact.
+CI runs the same typecheck and tests on every pull request and on pushes to `main`. The smoke tests run locally; each run writes screenshots and recordings of both flows to `test-results/`.
 
 Kiro steering lives in `.kiro/steering/` and hooks in `.kiro/hooks/`. Saving a TypeScript file runs only its related tests, and finishing a spec task runs the full typecheck and test suite.
 
