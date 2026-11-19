@@ -85,7 +85,12 @@ export function createCachedGet(options: CachedGetOptions) {
         const slot = shared?.reserve ? await shared.reserve(`${options.keyPrefix}:next-slot`, minInterval) : Math.max(now(), lastStart + minInterval);
         lastStart = slot;
         const gap = slot - now();
-        if (gap > 0) await sleep(gap);
+        if (gap > 0) {
+          await sleep(gap);
+          // Another instance may have been told to back off while we waited.
+          if (shared) blockedUntil = Math.max(blockedUntil, Number(await shared.get(blockKey)) || 0);
+          if (blockedUntil > now()) throw new RateLimitError(options.name, blockedUntil);
+        }
       }
       const res = await options.request(path, ctx);
       if (res.status === 429) {

@@ -93,6 +93,33 @@ describe('Best Buy source', () => {
     expect([...waits].sort((a, b) => a - b)).toEqual([250, 500, 750, 1000, 1250]); // the first starts at once
   });
 
+  it('rechecks the shared pause after waiting for its slot', async () => {
+    let t = 0;
+    const values = new Map<string, string>();
+    const shared = {
+      get: async (k: string) => values.get(k) ?? null,
+      set: async (k: string, v: string) => void values.set(k, v),
+      reserve: async () => 250, // our slot is 250 ms away
+    };
+    let calls = 0;
+    const fetch: typeof globalThis.fetch = async () => {
+      calls++;
+      return Response.json({ products: [] });
+    };
+    const s = createBestBuySource({
+      apiKey: TEST_KEY,
+      shared,
+      now: () => t,
+      // While we wait, another instance gets a 429 and pauses everyone for a minute.
+      sleep: async (ms) => {
+        values.set('bestbuy:blocked-until', String(t + 60_000));
+        t += ms;
+      },
+    });
+    await expect(s.search('tv', ctx(fetch))).rejects.toBeInstanceOf(RateLimitError);
+    expect(calls).toBe(0);
+  });
+
   it('pauses after a 429 until Retry-After has passed', async () => {
     let calls = 0;
     const fetch: typeof globalThis.fetch = async () => {
