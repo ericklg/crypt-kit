@@ -21,10 +21,11 @@ export function getConfig(): ExorcistConfig {
 export function getRunner(): Runner<StaleItem> {
   if (runner) return runner;
   const c = getConfig();
+  const github = c.githubApiUrl ? { baseUrl: c.githubApiUrl } : {};
   const url = process.env.CRYPT_DB_URL?.trim() || DEFAULT_DATABASE_URL;
   const authToken = process.env.CRYPT_DB_AUTH_TOKEN?.trim();
   runner = createRunner<StaleItem>({
-    detector: createStaleItemsDetector({ repos: c.repos, staleDays: c.staleDays, token: c.githubToken }),
+    detector: createStaleItemsDetector({ repos: c.repos, staleDays: c.staleDays, token: c.githubToken, ...github }),
     agent: createAiAgent<StaleItem>({
       // Resolved on the first draft: reading the board needs no model settings.
       model: () => modelFromEnv(),
@@ -32,7 +33,7 @@ export function getRunner(): Runner<StaleItem> {
       options: TRIAGE_OPTIONS,
       describe: (f) => describeStaleItem(f),
     }),
-    action: createCommentAndCloseAction({ token: c.githubToken }),
+    action: createCommentAndCloseAction({ token: c.githubToken, ...github }),
     // An issue banished with a comment can go quiet again later; bring it back then.
     reopenApprovedOnChange: true,
     // Its own table, so Exorcist and Poltergeist can share one database.

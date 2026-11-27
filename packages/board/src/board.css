@@ -83,7 +83,8 @@
 .ck-grave[data-status='drafting'] .ck-spirit, .ck-grave[data-status='new'] .ck-spirit { opacity: .6; }
 .ck-g-title { display: block; font: 700 20px/1.2 var(--ck-font-display); margin: 6px 0 8px; text-wrap: balance; }
 .ck-g-meta { display: block; font-size: 13px; color: var(--ck-muted); margin: 0 0 14px; }
-.ck-g-price { display: block; font: 700 27px/1 var(--ck-font-display); color: var(--ck-good); margin: 0 0 12px; }
+/* 14px, not the mockup's declared 12px: its pill sits on an inline line box that adds 2px. */
+.ck-g-price { display: block; font: 700 27px/1 var(--ck-font-display); color: var(--ck-good); margin: 0 0 14px; }
 .ck-g-price s { font: 500 14px var(--ck-font-body); color: var(--ck-muted); margin-left: 6px; }
 .ck-grave[data-leaving='approve'] { opacity: 0; transform: translateY(-60px) scale(.92); filter: blur(10px); }
 .ck-grave[data-leaving='spare'] { opacity: 0; transform: translateY(30px) scale(.96); filter: grayscale(1); }
@@ -105,7 +106,8 @@
 .ck-facts { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 0; padding: 0; }
 .ck-fact { background: var(--ck-surface2); border: 1px solid var(--ck-line); border-radius: 10px; padding: 8px 12px; min-width: 92px; display: flex; flex-direction: column-reverse; }
 .ck-fact dd { margin: 0; font: 600 16px/1.25 var(--ck-font-body); }
-.ck-fact dt { font-size: 12px; color: var(--ck-muted); }
+/* 4px + 18.5px = the body's 22.5px line, with the text low on it, as the mockup's inline label sits. */
+.ck-fact dt { font-size: 12px; line-height: 18.5px; padding-top: 4px; color: var(--ck-muted); }
 .ck-fact[data-tone='good'] dd { color: var(--ck-good); }
 .ck-fact[data-tone='strike'] dd { text-decoration: line-through; color: var(--ck-muted); font-weight: 500; }
 .ck-d-label { display: flex; align-items: center; gap: 8px; margin: 26px 0 10px; font: 600 12px/1 var(--ck-font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--ck-muted); }
@@ -158,6 +160,11 @@
   .ck-graves { grid-template-columns: 1fr; }
   .ck-drawer { padding: 24px 18px 36px; }
   .ck-d-actions .ck-hint { margin-left: 0; width: 100%; }
+}
+
+/* No keyboard to speak of on a touch screen: drop the shortcut hints there. */
+@media (hover: none) and (pointer: coarse) {
+  .ck-keys, .ck-board kbd { display: none; }
 }
 
 /* Motion off: the OS setting, or theme.motion = 'reduced' (data-motion on .ck-board). */

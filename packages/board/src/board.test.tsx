@@ -212,7 +212,7 @@ describe('states', () => {
     const t = setup({ defaultOpenKey: 'a#6' });
     const happened = within(t.drawer()).getByRole('button', { name: /It happened/ }) as HTMLButtonElement;
     expect(happened.disabled).toBe(true);
-    expect(within(t.drawer()).getByText('Unlocks in 10 min')).toBeTruthy();
+    expect(within(t.drawer()).getByText('You can answer in 10 min, once the first try has timed out.')).toBeTruthy();
   });
 
   it('approving: settle calls the action once unlocked', async () => {
@@ -252,7 +252,7 @@ describe('review fixes', () => {
     v[5] = { ...v[5]!, claimExpiresAt: null };
     render(board(v, fakeActions(), { defaultOpenKey: 'a#6' }));
     expect((screen.getByRole('button', { name: /It happened/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText('Waiting for the first attempt to time out.')).toBeTruthy();
+    expect(screen.getByText('You can answer once the first try has timed out.')).toBeTruthy();
   });
 
   it('takes interface text from copy.ui and the theme verbs', () => {
@@ -264,6 +264,12 @@ describe('review fixes', () => {
     expect(legend).toContain('let it rest');
     expect(legend).not.toMatch(/approve|spare/);
     expect(screen.getByRole('button', { name: 'Cerrar' })).toBeTruthy();
+  });
+
+  it('names the spare button as shown in the waiting hint', () => {
+    const t = { ...theme, copy: { ...theme.copy, spare: 'Let it rest' } };
+    render(board(views(), fakeActions(), { theme: t, defaultOpenKey: 'a#5' }));
+    expect(screen.getByText('You can still press Let it rest.')).toBeTruthy();
   });
 
   it('shows a key again when the runner reopens it with a newer revision', async () => {

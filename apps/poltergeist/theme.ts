@@ -26,7 +26,7 @@ export function poltergeistTheme(watched: number, sourceName: string, noun: { on
     },
     copy: {
       name: 'Price Poltergeist',
-      sub: `${watched} ${watched === 1 ? noun.one : noun.many} watched · ${sourceName}`,
+      sub: `Price drops on ${watched} watched ${watched === 1 ? noun.one : noun.many} · ${sourceName}`,
       openLabel: 'rattling',
       scoreLabel: 'deals claimed this week',
       approve: 'Claim deal',

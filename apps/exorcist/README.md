@@ -12,6 +12,7 @@ Stale GitHub issues and pull requests become ghosts on a haunted board, each wit
 | `CRYPT_BOARD_PASSWORD` | one of these two | At least 12 characters. The browser asks for it, and every action checks it |
 | `CRYPT_PUBLIC_DEMO=1` | one of these two | Anyone may act. Only for a sandbox repo |
 | `EXORCIST_STALE_DAYS` | no | Days without activity before an item is stale. Default 30 |
+| `GITHUB_API_URL` | no | GitHub's REST API root, for GitHub Enterprise. Default `https://api.github.com`. Must be https (http only for localhost, as the smoke tests use) |
 | `CRYPT_DB_URL`, `CRYPT_DB_AUTH_TOKEN` | no | libSQL database. Default `file:crypt-kit.db`; use Turso on Vercel |
 | `CRON_SECRET` | no | Turns on the daily scheduled run at `/api/cron` |
 

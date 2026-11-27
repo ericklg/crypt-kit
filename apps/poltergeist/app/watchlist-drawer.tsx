@@ -214,7 +214,7 @@ export function WatchlistDrawer({ sourceName, noun = { one: 'game', many: 'games
                 </div>
                 <form className="wl-target" onSubmit={onTargetSubmit(g)}>
                   <label>
-                    Target
+                    Alert at $
                     <input
                       // Remounts with the saved value whenever it changes.
                       key={g.target}
@@ -228,7 +228,7 @@ export function WatchlistDrawer({ sourceName, noun = { one: 'game', many: 'games
                     />
                   </label>
                 </form>
-                <button className="ck-btn ck-btn-ghost" type="button" disabled={busy !== null} onClick={() => run(`remove:${g.itemId}`, () => unwatchGame(g.itemId), `Stopped watching ${g.title}.`)} aria-label={`Stop watching ${g.title}`}>
+                <button className="ck-btn ck-btn-ghost wl-remove" type="button" disabled={busy !== null} onClick={() => run(`remove:${g.itemId}`, () => unwatchGame(g.itemId), `Stopped watching ${g.title}.`)} aria-label={`Stop watching ${g.title}`}>
                   <Icon name="x" />
                 </button>
               </li>
